@@ -47,22 +47,36 @@ def load_scripts():
         return {"scripts": []}
 
 
-def save_scripts(data):
-    """Save scripts to JSON file with backup"""
-    # Create backup before saving
-    if os.path.exists(DATA_FILE):
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_file = os.path.join(BACKUP_DIR, f'scripts_{timestamp}.json')
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            backup_data = f.read()
-        with open(backup_file, 'w', encoding='utf-8') as f:
-            f.write(backup_data)
-        
-        # Keep only last 10 backups
+def save_scripts(data, create_backup=True):
+    """Save scripts to JSON file with optional backup"""
+    # Create backup before saving (only if requested and file exists)
+    if create_backup and os.path.exists(DATA_FILE):
+        # Check if enough time has passed since last backup (avoid backup spam)
         backups = sorted([f for f in os.listdir(BACKUP_DIR) if f.startswith('scripts_')])
-        if len(backups) > 10:
-            for old_backup in backups[:-10]:
-                os.remove(os.path.join(BACKUP_DIR, old_backup))
+        should_backup = True
+        
+        if backups:
+            # Get timestamp of most recent backup
+            last_backup = backups[-1]
+            last_backup_time = datetime.strptime(last_backup.replace('scripts_', '').replace('.json', ''), '%Y%m%d_%H%M%S')
+            time_since_backup = (datetime.now() - last_backup_time).total_seconds()
+            
+            # Only create backup if more than 5 minutes have passed
+            should_backup = time_since_backup > 300  # 5 minutes
+        
+        if should_backup:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_file = os.path.join(BACKUP_DIR, f'scripts_{timestamp}.json')
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                backup_data = f.read()
+            with open(backup_file, 'w', encoding='utf-8') as f:
+                f.write(backup_data)
+            
+            # Keep only last 10 backups
+            backups = sorted([f for f in os.listdir(BACKUP_DIR) if f.startswith('scripts_')])
+            if len(backups) > 10:
+                for old_backup in backups[:-10]:
+                    os.remove(os.path.join(BACKUP_DIR, old_backup))
     
     # Save new data
     with open(DATA_FILE, 'w', encoding='utf-8') as f:

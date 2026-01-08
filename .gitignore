@@ -56,7 +56,8 @@ scripts/private/
 scripts/wip/
 scripts/experimental/
 
-# Data backups
+# Data backups (keep backups out of git, but track the directory structure)
+data/backups/*.json
 data/*.backup
 data/*.bak
 data/*-backup.json
