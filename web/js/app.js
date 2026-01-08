@@ -189,21 +189,33 @@ function renderScripts() {
     }).join('');
 }
 
-// Update statistics summary
+// Update statistics in dropdown options
 function updateStats() {
-    const totalScripts = filteredScripts.length;
-    const strategies = filteredScripts.filter(s => s.type === 'strategy').length;
-    const indicators = filteredScripts.filter(s => s.type === 'indicator').length;
+    // Count all types from allScripts (not filtered)
+    const allStrategies = allScripts.filter(s => s.type === 'strategy').length;
+    const allIndicators = allScripts.filter(s => s.type === 'indicator').length;
+    const allStudies = allScripts.filter(s => s.type === 'study').length;
     
-    const strategiesWithBacktest = filteredScripts.filter(s => s.type === 'strategy' && s.backtest && s.backtest.winRate != null);
-    const avgWinRate = strategiesWithBacktest.length > 0
-        ? strategiesWithBacktest.reduce((sum, s) => sum + s.backtest.winRate, 0) / strategiesWithBacktest.length
-        : 0;
+    // Count all statuses from allScripts (not filtered)
+    const allActive = allScripts.filter(s => s.status === 'active').length;
+    const allTesting = allScripts.filter(s => s.status === 'testing').length;
+    const allDeprecated = allScripts.filter(s => s.status === 'deprecated').length;
+    const allArchived = allScripts.filter(s => s.status === 'archived').length;
     
-    document.getElementById('totalScripts').textContent = totalScripts;
-    document.getElementById('totalStrategies').textContent = strategies;
-    document.getElementById('totalIndicators').textContent = indicators;
-    document.getElementById('avgWinRate').textContent = avgWinRate.toFixed(1) + '%';
+    // Update Type filter options
+    const typeFilter = document.getElementById('typeFilter');
+    typeFilter.options[0].text = `All Types (${allScripts.length})`;
+    typeFilter.options[1].text = `Strategies (${allStrategies})`;
+    typeFilter.options[2].text = `Indicators (${allIndicators})`;
+    typeFilter.options[3].text = `Studies (${allStudies})`;
+    
+    // Update Status filter options
+    const statusFilter = document.getElementById('statusFilter');
+    statusFilter.options[0].text = `All Status (${allScripts.length})`;
+    statusFilter.options[1].text = `Active (${allActive})`;
+    statusFilter.options[2].text = `Testing (${allTesting})`;
+    statusFilter.options[3].text = `Deprecated (${allDeprecated})`;
+    statusFilter.options[4].text = `Archived (${allArchived})`;
 }
 
 // Filter and search scripts

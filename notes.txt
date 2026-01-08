@@ -1,56 +1,207 @@
-➕ 1. Intent (single-select or short text)
+Q1: Add examples/snippets?
 
-This is more important than another metric.
+Yes—but only for CRITICAL and HIGH checks.
+Otherwise the doc balloons and becomes harder to maintain.
 
-Examples:
+Pattern that works well:
 
-Mean reversion
+For each CRITICAL/HIGH item: BAD + GOOD snippet (5–10 lines each)
 
-Trend continuation
+For WARNING items: 1–2 sentences + optional snippet
 
-Regime filter
+Also: keep snippets Pine-realistic (using series types, var, request.security, strategy.*), not pseudocode.
 
-Veto / confirmation
+Q2: How to integrate with the existing 8-category code review?
 
-Experimental
+Cursor’s Option C (Hybrid) is the right call.
 
-This lets you later answer questions like:
+Implementation suggestion:
 
-“Show me all mean-reversion strategies”
-“Which scripts are veto-only?”
+Keep your existing 8-category review as “Code Quality Review”
 
-This field pays dividends fast.
+Add a new Category 9: Business Logic QA (Tier 1) with a short “must-pass” subset:
 
-➕ 2. Assumptions (short text / bullets)
+A1–A4, B1–B4, C1–C3, D1–D4, E1–E2, F1, F2, F4, G1–G3 (as warnings)
 
-This is not notes — it’s more specific.
+Put the full Tier-1 doc in LOGICAL_SANITY_CHECKS.md as reference + examples.
 
-Examples:
+This keeps the checklist usable in day-to-day reviews while still having depth when needed.
 
-“RTH only (09:30–16:00 ET)”
+Q3: Asset-specific parameters for G2?
 
-“Requires overnight session”
+Agree with Cursor: start generic.
 
-“Fails on trend days”
+I’d implement G2 as:
 
-“Designed for ES 5m”
+A generic warning (no hard fail)
 
-This is where future-you avoids re-learning hard lessons.
+The doc should recommend “normalize by ATR” rather than raw % thresholds
 
-➕ 3. Confidence / Maturity (enum)
+Later, when you have enough runs, add optional profiles:
 
-Something like:
+profiles/es.json with default “suspicious” bounds (e.g., stopDistanceATR > 4)
 
-Draft
+but don’t block anything on it.
 
-Paper-only
+Q4: Observability requirements?
 
-Validated
+Agree: optional, strongly recommended during development, and can be removed/disabled for “production.”
 
-Retired
+I’d add one concrete rule:
 
-You already have Status, but status is operational; this is epistemic.
+Any observability plots/labels should be behind input.bool(debugMode) so you can turn them off without editing code.
 
-It answers:
+Suggested Additions — I agree (and here’s how they fit)
+A5 Time/date arithmetic (CRITICAL/HIGH depending)
 
-“How much do I trust this idea?”
+Yes. In Pine, the big risk is mixing units (ms vs minutes) and using session timestamps incorrectly. This belongs in A) Mathematical & Data Invariants.
+
+B5 var initialization (CRITICAL)
+
+Yes. “Implicit na reliance” is a common source of silent logic inversion. Add to B) Pine semantics or D) State; I’d put it in B.
+
+C5 price reference validity (CRITICAL/HIGH)
+
+Yes. This is a major “upside-down” source: using stale rth_close, stale entry_bar, stale or_high. Put in C and D.
+
+E4 symbol availability (HIGH)
+
+Yes. Add to E: “dependency is required vs optional” and “graceful degradation.”
+
+Tier-1 Business Logic QA v1.2 (Merged + Additions)
+A) Mathematical & Data Invariants (CRITICAL)
+
+A1 OHLC coherence (high ≥ max(open, close), low ≤ min(open, close)) unless explicitly using synthetic bars.
+
+A2 Division safety: guard all denominators (!= 0 and not na).
+
+A3 Period validity: all lengths/lookbacks ≥ 1 and bounded.
+
+A4 Percent/ratio sanity: inputs bounded; exceptions documented.
+
+A5 Time/unit arithmetic sanity:
+
+All time deltas use consistent units (ms vs minutes).
+
+No “magic 60000” without a named constant.
+
+If using timestamp math, guard na and ensure session boundaries are correct.
+
+Example (BAD / GOOD):
+
+// BAD: minutes vs ms mixed
+minsSinceOpen = (time - rthOpenTime) / 60
+
+// GOOD:
+MILLISECONDS_PER_MINUTE = 60000.0
+minsSinceOpen = (time - rthOpenTime) / MILLISECONDS_PER_MINUTE
+
+B) Pine Semantics & API Correctness (CRITICAL)
+
+B1 strategy.entry() direction correct (strategy.long/short only).
+
+B2 strategy.exit() coherence: stop/limit not swapped; no na prices.
+
+B3 Type compatibility: ta.barssince(bool), no implicit bool/int confusion.
+
+B4 request.security explicitness: lookahead_off explicit; gaps behavior intentional.
+
+B5 var initialization discipline:
+
+var has explicit initial value (na is fine, but intentional).
+
+Types explicit where ambiguous (var float x = na).
+
+Example:
+
+// GOOD:
+var float rthClose = na
+var int entryBar = na
+
+C) Directionality & Polarity Sanity (CRITICAL/HIGH)
+CRITICAL
+
+C1 Stop-loss on loss side by construction for long/short.
+
+C2 Take-profit on profit side by construction.
+
+C3 No silent sign flips via na/session.
+
+C5 Price reference validity
+
+Stops/targets reference the correct entry context:
+
+use strategy.position_avg_price when appropriate
+
+or capture reference price on fill (position transitions from 0 → non-zero)
+
+No stale references from prior session/position.
+
+Example (capture on fill):
+
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    entryBar := bar_index
+    entryRefPrice := strategy.position_avg_price
+
+HIGH
+
+C4 Naming coherence: IDs and variable names align with direction unless documented.
+
+D) Session, Reset, State Integrity (CRITICAL)
+
+D1 Every var state has a reset event.
+
+D2 Day/session boundary matches intent (RTH end vs midnight).
+
+D3 Centralized gating (canTrade).
+
+D4 Trade lifecycle state resets when flat (entryBar, counters, flags).
+
+E) External Data Integrity (CRITICAL/HIGH)
+CRITICAL
+
+E1 Missing data behavior explicit (fail-open vs fail-closed).
+
+E2 Session alignment/gaps handled (or na guarded).
+
+HIGH
+
+E3 External dependencies enumerated in header/metadata.
+
+E4 Symbol availability & requirement level
+
+Each external symbol declared as required or optional.
+
+If missing/unavailable, script behavior is explicit (warn + fail-open/closed).
+
+Example:
+
+tickValue = request.security("NYSE:TICK", timeframe.period, close,
+     barmerge.gaps_off, barmerge.lookahead_off)
+tickOk = not na(tickValue)
+
+F) Reachability & Contradictions (HIGH/MEDIUM)
+
+F1 Mutually exclusive entries controlled.
+
+F2 No obvious always/never true gates.
+
+F3 Duplicate predicates with different actions (MEDIUM).
+
+F4 Exits reachable given max-hold and session close.
+
+G) Suspicious Pattern Warnings (WARNING)
+
+G1 Unrealistic friction flagged.
+
+G2 Stop/target distance suspicious (prefer ATR-normalized warnings).
+
+G3 Entry frequency suspicious (near-always or near-never).
+
+H) Observability (WARNING, Dev-Recommended)
+
+H1 Key states inspectable (session, levels, veto flags).
+
+H2 Veto reasons visible.
+
+H3 Debug behind a toggle (debugMode input).

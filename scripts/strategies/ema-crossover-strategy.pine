@@ -1,11 +1,14 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Your Name
+
 //@version=5
 strategy("EMA Crossover Strategy", 
-     overlay=true,
-     default_qty_type=strategy.percent_of_equity,
-     default_qty_value=10,
-     initial_capital=10000,
-     commission_type=strategy.commission.percent,
-     commission_value=0.1)
+  overlay=true,
+  default_qty_type=strategy.percent_of_equity,
+  default_qty_value=10,
+  initial_capital=10000,
+  commission_type=strategy.commission.percent,
+  commission_value=0.1)
 
 // ============================================================================
 // DESCRIPTION
@@ -15,46 +18,77 @@ strategy("EMA Crossover Strategy",
 // fast EMA crosses below the slow EMA.
 //
 // AUTHOR: Your Name
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // DATE: 2026-01-08
 //
 // PARAMETERS:
-// - fastLength: Period for the fast EMA (default: 9)
-// - slowLength: Period for the slow EMA (default: 21)
+// - fastLengthInput: Period for the fast EMA (default: 9)
+// - slowLengthInput: Period for the slow EMA (default: 21)
 //
 // USAGE:
 // Works best in trending markets on 4H or daily timeframes.
 // Consider adding filters for ranging conditions.
 // ============================================================================
 
-// Input Parameters
-fastLength = input.int(9, "Fast EMA Length", minval=1)
-slowLength = input.int(21, "Slow EMA Length", minval=1)
+// ————— Constants
+const color FAST_EMA_COLOR      = #0000FFff
+const color SLOW_EMA_COLOR      = #FF8000ff
+const color BUY_SIGNAL_COLOR    = #00FF00ff
+const color SELL_SIGNAL_COLOR   = #FF0000ff
+const color BG_UPTREND          = color.new(#00FF00ff, 95)
+const color BG_DOWNTREND        = color.new(#FF0000ff, 95)
 
+const int   DEFAULT_FAST_LENGTH = 9
+const int   DEFAULT_SLOW_LENGTH = 21
+
+const string ENTRY_ID           = "Long"
+
+// ————— Inputs
+int fastLengthInput = input.int(DEFAULT_FAST_LENGTH, "Fast EMA Length", minval=1)
+int slowLengthInput = input.int(DEFAULT_SLOW_LENGTH, "Slow EMA Length", minval=1)
+
+// ————— Calculations
 // Calculate EMAs
-fastEma = ta.ema(close, fastLength)
-slowEma = ta.ema(close, slowLength)
+float emaFast = ta.ema(close, fastLengthInput)
+float emaSlow = ta.ema(close, slowLengthInput)
 
+// Generate Signals - Only after sufficient data
+bool sufficientData = bar_index >= math.max(fastLengthInput, slowLengthInput)
+
+bool longCondition = sufficientData and ta.crossover(emaFast, emaSlow)
+bool shortCondition = sufficientData and ta.crossunder(emaFast, emaSlow)
+
+// Determine trend
+bool isUptrend = emaFast > emaSlow
+
+// ————— Strategy Calls
+if longCondition
+  strategy.entry(ENTRY_ID, strategy.long)
+
+if shortCondition
+  strategy.close(ENTRY_ID)
+
+// ————— Visuals
 // Plot EMAs
-plot(fastEma, "Fast EMA", color=color.new(color.blue, 0), linewidth=2)
-plot(slowEma, "Slow EMA", color=color.new(color.orange, 0), linewidth=2)
-
-// Generate Signals
-longCondition = ta.crossover(fastEma, slowEma)
-shortCondition = ta.crossunder(fastEma, slowEma)
-
-// Execute Trades
-if (longCondition)
-    strategy.entry("Long", strategy.long)
-
-if (shortCondition)
-    strategy.close("Long")
+plot(emaFast, "Fast EMA", 
+  color=color.new(FAST_EMA_COLOR, 0), 
+  linewidth=2)
+plot(emaSlow, "Slow EMA", 
+  color=color.new(SLOW_EMA_COLOR, 0), 
+  linewidth=2)
 
 // Visual Signals
-plotshape(longCondition, "Buy Signal", shape.triangleup, location.belowbar, 
-     color=color.new(color.green, 0), size=size.small)
-plotshape(shortCondition, "Sell Signal", shape.triangledown, location.abovebar, 
-     color=color.new(color.red, 0), size=size.small)
+plotshape(longCondition, "Buy Signal", 
+  shape.triangleup, 
+  location.belowbar, 
+  color=color.new(BUY_SIGNAL_COLOR, 0), 
+  size=size.small)
+
+plotshape(shortCondition, "Sell Signal", 
+  shape.triangledown, 
+  location.abovebar, 
+  color=color.new(SELL_SIGNAL_COLOR, 0), 
+  size=size.small)
 
 // Background coloring for trend
-bgcolor(fastEma > slowEma ? color.new(color.green, 95) : color.new(color.red, 95))
+bgcolor(isUptrend ? BG_UPTREND : BG_DOWNTREND)

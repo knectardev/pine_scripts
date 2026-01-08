@@ -3,6 +3,21 @@
 ## Project Overview
 This project contains Pine Script files for TradingView platform, including indicators, strategies, and studies.
 
+## Session Initialization
+When starting a new session with minimal context, the AI assistant MUST read the following documentation files to establish proper context:
+1. **REQUIRED**: `/docs/PINE_SCRIPT_STANDARDS.md` - Official Pine Script v5 coding standards, style guide, and best practices
+2. **REQUIRED**: `/docs/JSON_SCHEMA_GUIDE.md` - JSON metadata schema and structure
+3. **REQUIRED**: `/docs/LOGICAL_SANITY_CHECKS.md` - First-order logic validation and bug detection
+4. **RECOMMENDED**: `README.md` - Project overview and setup instructions
+5. **RECOMMENDED**: `QUICKSTART.md` - Quick reference for common tasks
+
+This ensures the AI has proper understanding of:
+- Pine Script v5 syntax and coding standards
+- Project structure and organization
+- Metadata requirements and schema
+- First-order logic validation (bug detection, not strategy evaluation)
+- File naming conventions and best practices
+
 ## Code Organization Rules
 
 ### File Structure
@@ -15,6 +30,7 @@ This project contains Pine Script files for TradingView platform, including indi
 
 ### Pine Script Standards
 - Always use Pine Script version 5 (`//@version=5`)
+- Follow official TradingView coding standards (see `/docs/PINE_SCRIPT_STANDARDS.md`)
 - Include comprehensive header comments with:
   - Script name and description
   - Author and version
@@ -22,7 +38,80 @@ This project contains Pine Script files for TradingView platform, including indi
   - Usage instructions
 - Use clear, descriptive variable names
 - Add inline comments for complex logic
-- Follow TradingView Pine Script style guide
+
+#### Mandatory Code Review Checks
+Before creating or modifying any Pine Script file, the AI MUST validate against these standards:
+
+**1. Script Structure (CRITICAL)**
+- [ ] Script follows exact organization: `<license>` → `<version>` → `<declaration>` → `<imports>` → `<constants>` → `<inputs>` → `<functions>` → `<calculations>` → `<strategy_calls>` → `<visuals>` → `<alerts>`
+- [ ] Uses `//@version=5` declaration
+- [ ] Includes proper license comment if publishable
+
+**2. Naming Conventions (REQUIRED)**
+- [ ] Variables and functions use `camelCase` (e.g., `maValue`, `calculateSignal()`)
+- [ ] Constants use `SNAKE_CASE` (e.g., `MAX_LOOKBACK`, `BULL_COLOR`)
+- [ ] Input variables have `Input` suffix (e.g., `lengthInput`, `colorInput`)
+- [ ] Arrays have `Array` suffix (e.g., `pricesArray`)
+- [ ] Tables have `Table` suffix (e.g., `resultsTable`)
+
+**3. Formatting (REQUIRED)**
+- [ ] Spaces around all binary operators (e.g., `a = b + c`, not `a=b+c`)
+- [ ] Space after commas in function calls
+- [ ] Line wrapping uses 2-space indentation (not 4)
+- [ ] Explicit type declarations used (e.g., `float ma = ta.sma(close, 14)`)
+
+**4. Constants and Inputs (REQUIRED)**
+- [ ] All constants declared at top using `const` keyword and `SNAKE_CASE`
+- [ ] All inputs grouped together in dedicated section
+- [ ] No `var` used for constants (performance anti-pattern)
+
+**5. Function Documentation (REQUIRED)**
+- [ ] All user-defined functions have doc comments with:
+  - `@function` - Description of what function does
+  - `@param` - Description of each parameter with type
+  - `@returns` - Description of return value with type
+  - `Dependencies:` - List of global variables used (if any)
+
+**6. Performance Optimization (REQUIRED)**
+- [ ] No expensive calculations inside loops
+- [ ] Built-in functions used instead of manual calculations where available
+- [ ] Values used multiple times are stored in variables (not recalculated)
+- [ ] Arrays and objects use `var` keyword for persistence
+
+**7. Limitations Compliance (CRITICAL)**
+- [ ] Total plot count ≤ 64 (includes plot, plotshape, plotchar, hline, fill, alertcondition)
+- [ ] Drawing objects managed with lifecycle (delete old objects)
+- [ ] Loop iterations bounded (max 500,000 per execution)
+- [ ] Historical data checks before using `[]` operator (verify sufficient bars)
+
+**8. Best Practices (RECOMMENDED)**
+- [ ] Debug code removed or disabled before commit (Pine Logs, debug labels/tables)
+- [ ] Conditional plotting used to stay within plot limits
+- [ ] Sufficient data checks before calculations (e.g., `if bar_index >= 200`)
+- [ ] No unnecessary recalculations of same values
+- [ ] Vertical alignment used for similar declarations
+
+**9. Logical Sanity Checks (FIRST-ORDER VALIDATION)**
+
+CRITICAL - Must Pass:
+- [ ] A1-A5: No OHLC violations, division by zero, negative periods, unbounded percents, time unit mixing
+- [ ] B1-B5: strategy.long/short only, exit params correct, type compatibility, request.security explicit, var initialization
+- [ ] C1-C3, C5: Long stops below/short above entry, TP directions match, no sign flips, valid price references
+- [ ] D1-D4: All var have reset logic, session boundaries match intent, centralized gating, entry tracking resets
+- [ ] E1-E2: External data na behavior explicit, session alignment handled
+
+HIGH - Should Pass:
+- [ ] C4: Entry ID matches direction ("Long" uses strategy.long)
+- [ ] E3-E4: External symbols enumerated, symbol requirements documented
+- [ ] F1-F2, F4: Mutually exclusive entries, no always/never-true logic, exits reachable
+
+WARNINGS - Review Recommended:
+- [ ] G1-G3: Realistic commission, reasonable stops (ATR-normalized), entry frequency not suspicious
+- [ ] H1-H3: Key states visualized, veto reasons visible, debug behind toggle
+
+**Reference:** See `/docs/LOGICAL_SANITY_CHECKS.md` for detailed examples, code snippets, and comprehensive guidance.
+
+**Note:** These checks detect BUGS (broken logic, impossible conditions, API misuse), NOT strategy quality (profitability, parameter optimization). Strategy logic remains your domain expertise.
 
 ### Metadata Management
 - When creating or modifying Pine Scripts, update the corresponding JSON metadata in `/data/scripts.json`
@@ -51,8 +140,60 @@ This project contains Pine Script files for TradingView platform, including indi
 - Update grid columns if new metadata fields are added
 
 ## AI Assistant Guidelines
-- When creating new Pine Scripts, always create the corresponding JSON metadata entry
+
+### Code Review Scope (IMPORTANT)
+The AI code review process evaluates ONLY technical code quality and compliance with Pine Script v5 standards. 
+
+**Code Review DOES Evaluate:**
+- Script structure and organization
+- Naming conventions (camelCase, SNAKE_CASE, suffixes)
+- Formatting and style (spacing, indentation, alignment)
+- Technical performance (loop efficiency, calculation optimization)
+- Platform limitations (plot counts, loop bounds, data access)
+- Documentation completeness and clarity
+- Code maintainability and readability
+
+**Code Review DOES NOT Evaluate:**
+- Trading strategy effectiveness or profitability
+- Backtesting results or performance metrics (win rate, profit factor, drawdown, etc.)
+- Business logic, risk management, or trading decisions
+- Parameter appropriateness, optimization, or reasonableness
+- Market suitability or strategy soundness
+- Entry/exit logic quality or trading signal validity
+- Position sizing, leverage, or capital allocation decisions
+- Commission rates, initial capital, or financial assumptions
+
+**Principle:** Strategy logic and trading decisions remain entirely the user's domain expertise. The AI provides technical coding assistance only, never trading advice or strategy evaluation.
+
+### Before Creating or Modifying Pine Scripts
+1. **Read Documentation**: If context is unclear, read `/docs/PINE_SCRIPT_STANDARDS.md` for coding standards
+2. **Code Review**: Validate ALL Pine Script code against the "Mandatory Code Review Checks" listed above
+3. **Report Issues**: If code doesn't meet standards, list specific violations and fix them
+4. **Metadata Sync**: Always create/update corresponding JSON metadata entry in `data/scripts.json`
+
+### Code Quality Assurance
+- Run through the complete code review checklist for every Pine Script file created or modified
+- Flag any deviations from TradingView official standards (style guide, limitations, optimization)
+- Ensure proper script organization structure is followed exactly
+- Verify naming conventions are consistent throughout the script
+- Check that all functions are properly documented
+- Confirm plot counts don't exceed limits (count all plot-related functions)
+- Validate performance optimizations (no recalculations, efficient loops)
+
+### General Assistance
 - When asked about backtest performance, refer to the data in scripts.json
-- Suggest improvements based on TradingView best practices
+- Suggest improvements based on TradingView best practices from `/docs/PINE_SCRIPT_STANDARDS.md`
 - Help optimize scripts for better performance and readability
-- Validate Pine Script syntax before saving files
+- Proactively identify and fix code quality issues
+- Educate users on Pine Script best practices when relevant
+
+### Validation Process
+When completing any Pine Script task:
+1. ✅ Verify script structure matches required organization
+2. ✅ Validate naming conventions (camelCase, SNAKE_CASE, suffixes)
+3. ✅ Check formatting (spacing, line wrapping, alignment)
+4. ✅ Confirm all functions are documented
+5. ✅ Count total plots (must be ≤ 64)
+6. ✅ Review for performance anti-patterns
+7. ✅ Ensure metadata is synchronized with script
+8. ✅ Remove or disable debug code before finalizing

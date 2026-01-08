@@ -1,3 +1,6 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Your Name
+
 //@version=5
 indicator("RSI Divergence Detector", overlay=true)
 
@@ -8,13 +11,13 @@ indicator("RSI Divergence Detector", overlay=true)
 // Marks divergences on the chart with lines and labels for easy identification.
 //
 // AUTHOR: Your Name
-// VERSION: 1.2.0
-// DATE: 2026-01-07
+// VERSION: 1.3.0
+// DATE: 2026-01-08
 //
 // PARAMETERS:
-// - rsiLength: Period for RSI calculation (default: 14)
-// - pivotLookback: Bars to look back/forward for pivot detection (default: 5)
-// - showRsiPanel: Display RSI in a separate panel (default: true)
+// - rsiLengthInput: Period for RSI calculation (default: 14)
+// - pivotLookbackInput: Bars to look back/forward for pivot detection (default: 5)
+// - showRsiPanelInput: Display RSI in a separate panel (default: true)
 //
 // DIVERGENCE TYPES:
 // - Bullish Regular: Price makes lower low, RSI makes higher low (reversal signal)
@@ -27,20 +30,43 @@ indicator("RSI Divergence Detector", overlay=true)
 // Confirm divergences with other indicators or price action.
 // ============================================================================
 
-// Input Parameters
-rsiLength = input.int(14, "RSI Length", minval=1)
-pivotLookback = input.int(5, "Pivot Lookback", minval=1)
-showRsiPanel = input.bool(true, "Show RSI Panel")
+// ————— Constants
+const color BULL_REGULAR_COLOR  = #00FF00ff
+const color BEAR_REGULAR_COLOR  = #FF0000ff
+const color BULL_HIDDEN_COLOR   = #0000FFff
+const color BEAR_HIDDEN_COLOR   = #FF8000ff
+const color RSI_COLOR           = #800080ff
+const color OVERBOUGHT_COLOR    = #FF0000ff
+const color OVERSOLD_COLOR      = #00FF00ff
+const color MIDLINE_COLOR       = #808080ff
+const color BG_OVERBOUGHT       = color.new(#FF0000ff, 90)
+const color BG_OVERSOLD         = color.new(#00FF00ff, 90)
 
+const int   RSI_OVERBOUGHT      = 70
+const int   RSI_OVERSOLD        = 30
+const int   RSI_MIDLINE         = 50
+
+const string BULL_DIV_TEXT      = "Bull Div"
+const string BEAR_DIV_TEXT      = "Bear Div"
+const string BULL_HIDDEN_TEXT   = "Bull HD"
+const string BEAR_HIDDEN_TEXT   = "Bear HD"
+
+// ————— Inputs
+int  rsiLengthInput       = input.int(14, "RSI Length", minval=1)
+int  pivotLookbackInput   = input.int(5, "Pivot Lookback", minval=1)
+bool showRsiPanelInput    = input.bool(true, "Show RSI Panel")
+
+// ————— Calculations
 // RSI Calculation
-rsi = ta.rsi(close, rsiLength)
+float rsiValue = ta.rsi(close, rsiLengthInput)
 
-// Pivot Detection
-pivotHigh = ta.pivothigh(high, pivotLookback, pivotLookback)
-pivotLow = ta.pivotlow(low, pivotLookback, pivotLookback)
+// Pivot Detection - Price
+float pivotHighPrice = ta.pivothigh(high, pivotLookbackInput, pivotLookbackInput)
+float pivotLowPrice = ta.pivotlow(low, pivotLookbackInput, pivotLookbackInput)
 
-rsiPivotHigh = ta.pivothigh(rsi, pivotLookback, pivotLookback)
-rsiPivotLow = ta.pivotlow(rsi, pivotLookback, pivotLookback)
+// Pivot Detection - RSI
+float rsiPivotHigh = ta.pivothigh(rsiValue, pivotLookbackInput, pivotLookbackInput)
+float rsiPivotLow = ta.pivotlow(rsiValue, pivotLookbackInput, pivotLookbackInput)
 
 // Variables to store pivot values and bars
 var float lastPivotHigh = na
@@ -51,62 +77,95 @@ var int lastPivotHighBar = na
 var int lastPivotLowBar = na
 
 // Update pivot values
-if not na(pivotHigh)
-    lastPivotHigh := pivotHigh
-    lastPivotHighBar := bar_index - pivotLookback
+if not na(pivotHighPrice)
+  lastPivotHigh := pivotHighPrice
+  lastPivotHighBar := bar_index - pivotLookbackInput
 
-if not na(pivotLow)
-    lastPivotLow := pivotLow
-    lastPivotLowBar := bar_index - pivotLookback
+if not na(pivotLowPrice)
+  lastPivotLow := pivotLowPrice
+  lastPivotLowBar := bar_index - pivotLookbackInput
 
 if not na(rsiPivotHigh)
-    lastRsiPivotHigh := rsiPivotHigh
+  lastRsiPivotHigh := rsiPivotHigh
 
 if not na(rsiPivotLow)
-    lastRsiPivotLow := rsiPivotLow
+  lastRsiPivotLow := rsiPivotLow
 
-// Detect Divergences
-bullishRegular = not na(pivotLow) and not na(lastPivotLow) and 
-     pivotLow > lastPivotLow and rsiPivotLow < lastRsiPivotLow
+// Detect Divergences - Only after sufficient data
+bool sufficientData = bar_index >= pivotLookbackInput * 2
 
-bearishRegular = not na(pivotHigh) and not na(lastPivotHigh) and 
-     pivotHigh < lastPivotHigh and rsiPivotHigh > lastRsiPivotHigh
+bool bullishRegular = sufficientData and not na(pivotLowPrice) and not na(lastPivotLow) and 
+  pivotLowPrice > lastPivotLow and rsiPivotLow < lastRsiPivotLow
 
-bullishHidden = not na(pivotLow) and not na(lastPivotLow) and 
-     pivotLow < lastPivotLow and rsiPivotLow > lastRsiPivotLow
+bool bearishRegular = sufficientData and not na(pivotHighPrice) and not na(lastPivotHigh) and 
+  pivotHighPrice < lastPivotHigh and rsiPivotHigh > lastRsiPivotHigh
 
-bearishHidden = not na(pivotHigh) and not na(lastPivotHigh) and 
-     pivotHigh > lastPivotHigh and rsiPivotHigh < lastRsiPivotHigh
+bool bullishHidden = sufficientData and not na(pivotLowPrice) and not na(lastPivotLow) and 
+  pivotLowPrice < lastPivotLow and rsiPivotLow > lastRsiPivotLow
 
-// Plot Signals
-plotshape(bullishRegular, "Bullish Regular Divergence", shape.labelup, 
-     location.belowbar, color=color.new(color.green, 0), text="Bull Div", 
-     textcolor=color.white, size=size.small)
+bool bearishHidden = sufficientData and not na(pivotHighPrice) and not na(lastPivotHigh) and 
+  pivotHighPrice > lastPivotHigh and rsiPivotHigh < lastRsiPivotHigh
 
-plotshape(bearishRegular, "Bearish Regular Divergence", shape.labeldown, 
-     location.abovebar, color=color.new(color.red, 0), text="Bear Div", 
-     textcolor=color.white, size=size.small)
+// ————— Visuals
+// Plot RSI Panel (optional)
+plot(showRsiPanelInput ? rsiValue : na, "RSI", 
+  color=RSI_COLOR, 
+  linewidth=2)
 
-plotshape(bullishHidden, "Bullish Hidden Divergence", shape.labelup, 
-     location.belowbar, color=color.new(color.blue, 0), text="Bull HD", 
-     textcolor=color.white, size=size.tiny)
+// RSI Levels
+hline(RSI_OVERBOUGHT, "Overbought", 
+  color=OVERBOUGHT_COLOR, 
+  linestyle=hline.style_dashed)
+hline(RSI_OVERSOLD, "Oversold", 
+  color=OVERSOLD_COLOR, 
+  linestyle=hline.style_dashed)
+hline(RSI_MIDLINE, "Midline", 
+  color=MIDLINE_COLOR, 
+  linestyle=hline.style_dotted)
 
-plotshape(bearishHidden, "Bearish Hidden Divergence", shape.labeldown, 
-     location.abovebar, color=color.new(color.orange, 0), text="Bear HD", 
-     textcolor=color.white, size=size.tiny)
+// Divergence Signals
+plotshape(bullishRegular, "Bullish Regular Divergence", 
+  shape.labelup, 
+  location.belowbar, 
+  color=color.new(BULL_REGULAR_COLOR, 0), 
+  text=BULL_DIV_TEXT, 
+  textcolor=color.white, 
+  size=size.small)
 
-// RSI Panel (optional)
-rsiPlot = plot(showRsiPanel ? rsi : na, "RSI", color=color.purple, linewidth=2)
-hline(70, "Overbought", color=color.red, linestyle=hline.style_dashed)
-hline(30, "Oversold", color=color.green, linestyle=hline.style_dashed)
-hline(50, "Midline", color=color.gray, linestyle=hline.style_dotted)
+plotshape(bearishRegular, "Bearish Regular Divergence", 
+  shape.labeldown, 
+  location.abovebar, 
+  color=color.new(BEAR_REGULAR_COLOR, 0), 
+  text=BEAR_DIV_TEXT, 
+  textcolor=color.white, 
+  size=size.small)
+
+plotshape(bullishHidden, "Bullish Hidden Divergence", 
+  shape.labelup, 
+  location.belowbar, 
+  color=color.new(BULL_HIDDEN_COLOR, 0), 
+  text=BULL_HIDDEN_TEXT, 
+  textcolor=color.white, 
+  size=size.tiny)
+
+plotshape(bearishHidden, "Bearish Hidden Divergence", 
+  shape.labeldown, 
+  location.abovebar, 
+  color=color.new(BEAR_HIDDEN_COLOR, 0), 
+  text=BEAR_HIDDEN_TEXT, 
+  textcolor=color.white, 
+  size=size.tiny)
 
 // Background coloring for RSI overbought/oversold
-bgcolor(showRsiPanel and rsi > 70 ? color.new(color.red, 90) : na)
-bgcolor(showRsiPanel and rsi < 30 ? color.new(color.green, 90) : na)
+bgcolor(showRsiPanelInput and rsiValue > RSI_OVERBOUGHT ? BG_OVERBOUGHT : na)
+bgcolor(showRsiPanelInput and rsiValue < RSI_OVERSOLD ? BG_OVERSOLD : na)
 
-// Alerts
-alertcondition(bullishRegular, "Bullish Regular Divergence", "Bullish Regular Divergence detected!")
-alertcondition(bearishRegular, "Bearish Regular Divergence", "Bearish Regular Divergence detected!")
-alertcondition(bullishHidden, "Bullish Hidden Divergence", "Bullish Hidden Divergence detected!")
-alertcondition(bearishHidden, "Bearish Hidden Divergence", "Bearish Hidden Divergence detected!")
+// ————— Alerts
+alertcondition(bullishRegular, "Bullish Regular Divergence", 
+  "Bullish Regular Divergence detected!")
+alertcondition(bearishRegular, "Bearish Regular Divergence", 
+  "Bearish Regular Divergence detected!")
+alertcondition(bullishHidden, "Bullish Hidden Divergence", 
+  "Bullish Hidden Divergence detected!")
+alertcondition(bearishHidden, "Bearish Hidden Divergence", 
+  "Bearish Hidden Divergence detected!")
