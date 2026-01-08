@@ -329,9 +329,12 @@ if close > open
 
 ---
 
-### B4. request.security() Explicitness
+### B4. request.security() Explicitness & Data Persistence
 
-**Check:** `lookahead` parameter is explicit; `gaps` behavior is intentional.
+**Check:** `lookahead` parameter is explicit; `gaps` behavior is intentional; data persistence/alignment is handled.
+
+**The Risk - Part 1: Lookahead and Gaps**
+Without explicit parameters, `request.security()` can cause repainting and unexpected behavior.
 
 **BAD:**
 ```pine
@@ -343,20 +346,136 @@ extValue = request.security("SYMBOL", "D", close)
 // What happens if daily bar hasn't closed yet?
 ```
 
-**GOOD:**
+**The Risk - Part 2: Data Persistence & Alignment**
+External security calls can return `na` during:
+- First bar of the day
+- Market holidays
+- Data feed interruptions
+- Misaligned trading hours
+
+If your strategy logic doesn't handle these `na` values, the **entire strategy logic can "freeze"** or make incorrect decisions.
+
+**BAD:**
 ```pine
-// ✅ Explicit lookahead and gaps handling
+// ❌ CRITICAL: No fallback for na data
+float tickValue = request.security("NYSE:TICK", timeframe.period, close,
+  barmerge.gaps_off, barmerge.lookahead_off)
+
+// If TICK data blips, tickValue becomes na
+if tickValue > 700  // na > 700 = false (silent failure!)
+  // Veto intended but not applied
+
+// ❌ CRITICAL: Arithmetic with na propagates
+float tickRatio = tickValue / 1000  // na / 1000 = na
+if tickRatio > 0.7  // Condition silently fails
+
+// ❌ CRITICAL: Strategy logic depends on external data without guard
+float vixValue = request.security("VIX", timeframe.period, close)
+bool highVol = vixValue > 20  // If na, becomes false - wrong assumption!
+
+if not highVol  // Trades during data outage, thinking vol is low!
+  strategy.entry("Long", strategy.long)
+```
+
+**GOOD (Comprehensive Data Handling):**
+```pine
+// ✅ Part 1: Explicit parameters
 float tickValue = request.security(
   "NYSE:TICK", 
+  timeframe.period, 
+  close,
+  barmerge.gaps_off,     // Explicit
+  barmerge.lookahead_off  // Explicit
+)
+
+// ✅ Part 2: Explicit na handling with fallback
+bool tickValid = not na(tickValue)
+bool tickVeto = tickValid ? (tickValue > 700) : true  // Fail-closed
+
+// ✅ Alternative: Use nz() with conservative default
+float tickSafe = nz(tickValue, 1500)  // Assume extreme if missing
+bool tickVeto = tickSafe > 700
+
+// ✅ Strategy 3: Track last valid value
+var float lastValidTick = na
+float currentTick = request.security("NYSE:TICK", timeframe.period, close,
+  barmerge.gaps_off, barmerge.lookahead_off)
+
+if not na(currentTick)
+  lastValidTick := currentTick
+
+// Use last valid value as fallback
+float tickForLogic = not na(lastValidTick) ? lastValidTick : na
+bool tickValid = not na(tickForLogic)
+
+// ✅ Strategy 4: Fail-safe mode with logging
+float vixValue = request.security("VIX", timeframe.period, close,
+  barmerge.gaps_off, barmerge.lookahead_off)
+
+bool vixValid = not na(vixValue)
+if not vixValid
+  log.warning("VIX data unavailable - using fail-safe defaults")
+
+// Explicit decision: fail-closed (conservative) or fail-open (permissive)
+bool highVol = vixValid ? (vixValue > 20) : false  // Default: not high vol
+// OR
+bool highVol = vixValid ? (vixValue > 20) : true   // Default: assume high vol
+```
+
+**Detection Criteria:**
+- `request.security()` calls without explicit `lookahead` parameter (HIGH)
+- `request.security()` calls without explicit `gaps` parameter (HIGH)  
+- External data used in logic without `na` checks (CRITICAL)
+- No fallback or default values for external data (CRITICAL)
+- External data used in arithmetic without guards (CRITICAL)
+
+**Best Practice Pattern:**
+```pine
+// ✅ Complete data persistence pattern
+// Step 1: Declare with explicit parameters
+float extData = request.security(
+  "SYMBOL", 
   timeframe.period, 
   close,
   barmerge.gaps_off,
   barmerge.lookahead_off
 )
 
-// ✅ Handle na from external data
+// Step 2: Track validity
+bool extDataValid = not na(extData)
+
+// Step 3: Maintain last known good value
+var float lastValidExtData = na
+if extDataValid
+  lastValidExtData := extData
+
+// Step 4: Use with fallback logic
+float dataForLogic = extDataValid ? extData : 
+  not na(lastValidExtData) ? lastValidExtData : 
+  close  // Ultimate fallback
+
+// Step 5: Log data health
+if not extDataValid
+  log.warning("External data unavailable on bar " + str.tostring(bar_index))
+```
+
+**Session Alignment Issues:**
+```pine
+// ❌ CRITICAL: Different trading hours cause na gaps
+// Your chart: ES futures (nearly 24h)
+// External: NYSE:TICK (RTH only 9:30-16:00)
+float tickValue = request.security("NYSE:TICK", timeframe.period, close)
+// Returns na outside NYSE hours!
+
+// ✅ Explicit handling of session misalignment
+float tickValue = request.security("NYSE:TICK", timeframe.period, close,
+  barmerge.gaps_off, barmerge.lookahead_off)
+
+bool isRthSession = not na(time(timeframe.period, "0930-1600:23456", "America/New_York"))
 bool tickValid = not na(tickValue)
-bool useTickFilter = tickValid and tickValue > 700
+
+// Only use TICK filter during RTH when data is available
+bool tickVeto = isRthSession and tickValid and (tickValue > 700)
 ```
 
 ---
@@ -393,6 +512,391 @@ var int tradeCount = 0
 // ✅ Clear intent even when na
 var float overnightHigh = na  // Will be set in overnight session
 ```
+
+---
+
+### B6. Pyramiding Logic Coherence (HIGH)
+
+**Check:** Entry logic aligns with pyramiding settings; position checks when pyramiding=0.
+
+**Common issues:**
+- Multiple entry calls with same ID when pyramiding=0 (default) - second+ entries silently ignored
+- Logic allows multiple conditions to trigger without checking position size
+- Pyramiding enabled but no apparent intent to add to position
+- Entry ID changes while in position causing unintended flips
+
+**BAD:**
+```pine
+// ❌ HIGH: pyramiding=0 (default) but multiple entries possible
+strategy("My Strategy", overlay=true)  // pyramiding=0 by default
+
+if ta.crossover(fastMA, slowMA)
+  strategy.entry("Long", strategy.long)
+
+// Later in code...
+if rsi < 30  // Both conditions can be true simultaneously!
+  strategy.entry("Long", strategy.long)  // Will be IGNORED if already long
+  
+// ❌ HIGH: pyramiding enabled but unclear if adding to position is intended
+strategy("My Strategy", pyramiding=5, overlay=true)
+
+if bullishSignal
+  strategy.entry("Long", strategy.long)  // Can fire 5 times, adding each time
+// Is this intended or an oversight?
+
+// ❌ MEDIUM: Using same ID for different entry logic
+if breakoutUp
+  strategy.entry("Entry", strategy.long)
+if rsi < 30
+  strategy.entry("Entry", strategy.long)  // Same ID but different logic
+```
+
+**GOOD:**
+```pine
+// ✅ pyramiding=0 with explicit position checks
+strategy("My Strategy", overlay=true)
+
+if ta.crossover(fastMA, slowMA) and strategy.position_size == 0
+  strategy.entry("Long", strategy.long)
+
+if rsi < 30 and strategy.position_size == 0
+  strategy.entry("Long", strategy.long)
+
+// ✅ pyramiding enabled with clear intent documented
+// PYRAMIDING: Strategy adds to position up to 3x when signal strengthens
+strategy("My Strategy", pyramiding=3, overlay=true)
+
+int maxEntries = 3
+var int entryCount = 0
+
+if bullishSignal and entryCount < maxEntries
+  strategy.entry("Long_" + str.tostring(entryCount), strategy.long)
+  entryCount += 1
+
+if strategy.position_size == 0
+  entryCount := 0  // Reset counter when flat
+
+// ✅ Different IDs for different entry logic
+if breakoutUp and strategy.position_size == 0
+  strategy.entry("Breakout", strategy.long)
+  
+if rsi < 30 and strategy.position_size == 0
+  strategy.entry("Oversold", strategy.long)
+```
+
+**Guidance:**
+- If pyramiding=0 (default), always add `strategy.position_size == 0` checks to entry conditions
+- If pyramiding > 0, document that multiple entries are intentional and why
+- Use different entry IDs for different entry logic to avoid confusion
+- Track entry count explicitly if you need to limit additions to position
+
+---
+
+### B7. Repainting Risk Patterns (WARNING/HIGH)
+
+**Check:** Flag patterns known to cause historical vs. real-time discrepancies.
+
+**What is repainting?**
+Repainting occurs when indicator values or strategy signals change on historical bars after they've been calculated, causing backtests to show unrealistic results that don't match live trading.
+
+**Severity:**
+- HIGH if unintentional (causes backtest vs. live mismatch)
+- WARNING if intentional and documented (e.g., for alerts, education)
+
+#### Pattern 1: calc_on_every_tick with Bar-State-Dependent Functions
+
+**WARNING:**
+```pine
+// ⚠️ WARNING: Repainting risk - intra-bar recalculation
+strategy("My Strategy", calc_on_every_tick=true, overlay=true)
+
+// These functions behave differently during bar vs. on bar close:
+value = ta.valuewhen(condition, close, 0)  // Changes throughout the bar
+lastCross = ta.barssince(ta.crossover(ma1, ma2))  // Updates intra-bar
+pivotHigh = ta.pivothigh(high, 5, 5)  // Only confirms 5 bars later
+
+if someCondition
+  strategy.entry("Long", strategy.long)
+```
+
+**GOOD:**
+```pine
+// ✅ Avoid repainting: calculate on bar close only
+strategy("My Strategy", calc_on_every_tick=false, overlay=true)  // Explicit
+
+// ✅ Or document intentional intra-bar execution with warnings
+// EXECUTION MODEL: calc_on_every_tick=true intentional for tick-level fills
+// WARNING: Backtest results may not match live trading due to intra-bar recalculation
+// This is acceptable for this strategy because [reason]
+strategy("My Strategy", calc_on_every_tick=true, overlay=true)
+
+// Use barstate.isconfirmed for critical logic
+if barstate.isconfirmed and someCondition
+  strategy.entry("Long", strategy.long)
+```
+
+#### Pattern 2: request.security Without Explicit Lookahead
+
+**HIGH:**
+```pine
+// ❌ HIGH: Repainting - may use future data on historical bars
+float dailyClose = request.security(syminfo.tickerid, "D", close)
+// Historical bars: Sees the completed daily bar (future data leak!)
+// Real-time bars: Daily bar is still forming, value updates
+
+// ❌ HIGH: Ambiguous gaps handling
+value = request.security(symbol, "60", close)
+// Missing explicit lookahead and gaps parameters
+
+if close > dailyClose
+  strategy.entry("Long", strategy.long)  // Unrealistic on historical data
+```
+
+**GOOD:**
+```pine
+// ✅ Explicit lookahead_off prevents future leak
+float dailyClose = request.security(
+  syminfo.tickerid, 
+  "D", 
+  close,
+  barmerge.gaps_off,
+  barmerge.lookahead_off  // Explicit - no future data
+)
+
+// ✅ Use previous completed bar for confirmed data
+float dailyClosePrev = request.security(
+  syminfo.tickerid,
+  "D",
+  close[1],  // Previous completed daily bar
+  barmerge.gaps_off,
+  barmerge.lookahead_off
+)
+
+// ✅ Document if using current bar is intentional
+// NOTE: Using current forming daily bar - aware of real-time behavior difference
+float dailyCloseCurrent = request.security(
+  syminfo.tickerid,
+  "D", 
+  close,
+  barmerge.gaps_off,
+  barmerge.lookahead_off
+)
+```
+
+#### Pattern 3: Offset References in Real-Time Signals
+
+**MEDIUM:**
+```pine
+// ⚠️ MEDIUM: Timing issues with offsets
+strategy("Test", calc_on_every_tick=true)
+
+if close > high[1]  // Uses previous bar's high
+  strategy.entry("Long", strategy.long)
+// Historical: Previous bar is complete and known
+// Real-time: If calc_on_every_tick, previous bar may still be updating
+```
+
+**GOOD:**
+```pine
+// ✅ Confirm bar close before using offsets
+strategy("Test", overlay=true)
+
+if barstate.isconfirmed and close > high[1]
+  strategy.entry("Long", strategy.long)
+
+// ✅ Or use calc_on_order_fills for realistic execution
+strategy("Test", calc_on_order_fills=true, overlay=true)
+```
+
+#### Pattern 4: Strategy Closed Trades Properties
+
+**WARNING:**
+```pine
+// ⚠️ WARNING: Closed trades info behaves differently
+if strategy.closedtrades > 0
+  float lastProfit = strategy.closedtrades.profit(strategy.closedtrades - 1)
+  // Historical: Sees all past completed trades
+  // Real-time: Only trades completed up to current moment
+  
+  // Using this for entry logic can cause discrepancies
+  if lastProfit < 0
+    // Skip next trade (works great in backtest, may differ live)
+```
+
+**GOOD:**
+```pine
+// ✅ Document if using closed trades for logic
+// AWARE: Using closed trades history affects backtest vs. live consistency
+// This is acceptable because strategy logic is path-dependent by design
+
+// ✅ Or avoid using closed trades history for entry logic
+// Use external state tracking instead
+var float lastTradeProfit = na
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+  lastTradeProfit := strategy.netprofit - strategy.netprofit[1]
+```
+
+**Detection Criteria:**
+- Flag `calc_on_every_tick=true` combined with: `ta.valuewhen()`, `ta.barssince()`, `ta.pivothigh()`, `ta.pivotlow()`, `ta.change()`
+- Flag `request.security()` without explicit `barmerge.lookahead_off`
+- Flag strategy declaration without explicit `calc_on_every_tick` parameter (ambiguous)
+- Flag use of `strategy.closedtrades` properties in entry/exit logic
+
+**Best Practices:**
+- Use `calc_on_every_tick=false` (bar close) unless you specifically need tick-level execution
+- Always use explicit `barmerge.lookahead_off` in `request.security()`
+- Document if repainting is intentional (e.g., for alerts, not trading decisions)
+- Test strategy on real-time bars, not just historical data
+- Use `barstate.isconfirmed` to wait for bar close before executing logic
+- Consider `calc_on_order_fills=true` for more realistic order execution modeling
+
+---
+
+### B8. Memory Consistency - ta. Functions in Conditionals (CRITICAL)
+
+**Check:** Functions starting with `ta.` are called on every bar, not wrapped inside conditional logic that might skip bars.
+
+**The Risk:**
+Pine Script's `ta.*` functions (technical analysis functions) maintain internal state across bars. If these functions are called conditionally (inside `if` statements), their state may not update correctly, leading to:
+- Incorrect historical references
+- State desynchronization
+- Unexpected `na` values
+- Logic that works on some bars but fails on others
+
+**BAD:**
+```pine
+// ❌ CRITICAL: ATR only calculated when condition is true
+if isRth
+  float atr = ta.atr(14)  // State not maintained outside RTH!
+  
+// Later in code (also in RTH):
+if someCondition
+  // atr may be stale or na if previous bar wasn't RTH
+  stopDist = 2 * atr  // Broken reference!
+
+// ❌ CRITICAL: RSI calculation skipped on some bars
+var float rsi = na
+if tradingEnabled
+  rsi := ta.rsi(close, 14)  // Only updates when enabled!
+  
+// Problem: RSI internal state corrupted when tradingEnabled is false
+
+// ❌ CRITICAL: SMA in loop with conditional
+for i = 0 to 10
+  if condition[i]
+    float ma = ta.sma(close, 50)  // Called conditionally in loop!
+    // State inconsistent across iterations
+
+// ❌ HIGH: Moving average only calculated during specific session
+bool calculateMA = isRth and not na(time)
+if calculateMA
+  float fastMA = ta.ema(close, 12)  // State breaks outside session
+  float slowMA = ta.ema(close, 26)
+
+// ❌ CRITICAL: Barssince with conditional recalculation
+if strategy.position_size != 0
+  int barsInTrade = ta.barssince(strategy.position_size == 0)
+  // Only updates while in position - state corrupted when flat!
+```
+
+**GOOD:**
+```pine
+// ✅ Calculate ta. functions UNCONDITIONALLY at global scope
+float atr = ta.atr(14)         // Called every bar
+float rsi = ta.rsi(close, 14)  // Called every bar
+float fastMA = ta.ema(close, 12)
+float slowMA = ta.ema(close, 26)
+
+// THEN use the values in conditional logic
+if isRth
+  float stopDist = 2 * atr  // Value always fresh
+  
+if tradingEnabled and rsi > 70
+  // RSI state is consistent
+
+// ✅ For position-dependent calculations, use var to track
+var int entryBar = na
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+  entryBar := bar_index  // Capture entry
+
+int barsInTrade = not na(entryBar) ? (bar_index - entryBar) : 0
+
+// ✅ If you MUST calculate conditionally, document and accept limitations
+// AWARE: Conditional ATR calculation - state will be inconsistent
+// This is acceptable because we only use it immediately after calculation
+if isFirstBar
+  float openingRangeATR = ta.atr(14)
+  // Used immediately, not stored for later
+  log.info("Opening ATR: " + str.tostring(openingRangeATR))
+
+// ✅ For conditional use, calculate globally then filter
+float currentATR = ta.atr(14)  // Always calculate
+
+if isRth
+  float rthATR = currentATR  // Use the value conditionally
+  stopDist = 2 * rthATR
+
+// ✅ Pattern for session-specific calculations
+// Calculate globally, store when condition is true
+float rsiValue = ta.rsi(close, 14)  // Every bar
+var float rthOpenRSI = na
+
+if isFirstBar  // First bar of RTH
+  rthOpenRSI := rsiValue  // Capture the value
+```
+
+**Why This Matters:**
+```pine
+// Example showing the problem:
+strategy("Broken State", overlay=true)
+
+// ❌ BAD: Conditional calculation
+var float maValue = na
+if dayofweek == dayofweek.monday
+  maValue := ta.sma(close, 50)  // Only updates on Mondays!
+
+// On Tuesday-Friday, maValue is stale (still Monday's value)
+// But worse: ta.sma internal state is corrupted because it wasn't called
+
+// ✅ GOOD: Always calculate, conditionally use
+float maValue = ta.sma(close, 50)  // Every bar
+
+if dayofweek == dayofweek.monday
+  // Use the value only on Mondays
+  plot(maValue, "Monday MA", color.blue)
+```
+
+**Detection Criteria:**
+- `ta.*` function calls inside `if` blocks (CRITICAL)
+- `ta.*` function calls inside loops with conditional logic (CRITICAL)
+- `ta.*` function calls with `:=` assignment inside conditionals (CRITICAL)
+- `ta.*` functions that are only called during specific sessions (HIGH)
+
+**Exceptions (Document These):**
+1. **Immediate Use**: If `ta.*` is calculated and used immediately without storage, it may be acceptable
+2. **Initialization Only**: One-time calculations on first bar may be acceptable if documented
+3. **Intentional Reset**: If you explicitly want state to reset (rare), document why
+
+**Best Practice:**
+```pine
+// ————— Calculations (at global scope)
+// Calculate ALL technical indicators here, unconditionally
+float atr = ta.atr(14)
+float rsi = ta.rsi(close, 14)
+float macd = ta.macd(close, 12, 26, 9)
+int barsSinceHigh = ta.barssince(high == ta.highest(high, 100))
+
+// ————— Strategy Calls (conditional logic)
+// Now use the pre-calculated values in conditional logic
+if isRth and atr > minATR
+  if rsi < 30
+    strategy.entry("Long", strategy.long)
+```
+
+**Related Checks:**
+- See section 2.8 in PINE_SCRIPT_STANDARDS.md for proper script organization
+- Calculations section should contain all `ta.*` calls at global scope
+- Strategy calls section contains conditional logic using those values
 
 ---
 
@@ -1092,6 +1596,88 @@ if ta.crossover(close, close)  // Never crosses itself
 
 ---
 
+### G4. Bar Magnifier Logic (Within-Bar Execution Assumption)
+
+**Pattern:** strategy.exit behavior within single bars when both stop and target can be hit.
+
+**The Risk:**
+Pine Script's strategy engine assumes the "best case scenario" within a single bar unless using the Bar Magnifier feature (premium). If a bar's range includes both your stop loss AND take profit, the backtest defaults to the **profitable outcome**.
+
+**Real-world impact:**
+- Backtest shows: Take profit hit first → Win
+- Live trading: Stop hit first → Loss
+
+This creates an **optimistic backtest bias**, especially on higher timeframes or volatile instruments.
+
+**WARNING:**
+```pine
+// ⚠️ WARNING: Bar Magnifier assumption risk
+strategy("My Strategy", overlay=true)
+
+if longCondition
+  strategy.entry("Long", strategy.long)
+
+// Tight stops and targets on 5-minute bars
+if strategy.position_size > 0
+  stopPrice = strategy.position_avg_price - 2.0   // 2 point stop
+  limitPrice = strategy.position_avg_price + 2.0  // 2 point target
+  strategy.exit("Exit", stop=stopPrice, limit=limitPrice)
+
+// On a volatile 5-min bar with 6-point range:
+// - Backtest assumes: Target hit first (win)
+// - Reality: Could hit stop first (loss)
+```
+
+**Detection Criteria:**
+- Small stop/target distances relative to bar volatility (e.g., both within 1× ATR)
+- Higher timeframes (5-min+) with tight exits
+- Instruments with high intra-bar volatility
+
+**GOOD (Mitigation Strategies):**
+```pine
+// ✅ Strategy 1: Test on lower timeframe
+// Instead of 5-minute bars, backtest on 1-minute bars
+// More granular execution reduces within-bar ambiguity
+
+// ✅ Strategy 2: Conservative stop placement
+// Ensure stop is significantly wider than typical bar range
+float atr = ta.atr(14)
+stopDist = 2.5 * atr  // Well outside typical bar range
+limitDist = 1.5 * atr
+
+// ✅ Strategy 3: Use "Worst Case" stop logic
+// Place stop outside bar high/low to avoid within-bar ambiguity
+if strategy.position_size > 0
+  // Stop outside the bar range (more conservative)
+  stopPrice = math.min(low, strategy.position_avg_price - stopDist)
+  strategy.exit("Stop", stop=stopPrice)
+
+// ✅ Strategy 4: Document assumption
+// EXECUTION MODEL: This strategy assumes Bar Magnifier favorable execution.
+// Live results may differ if stops hit before targets within same bar.
+// Backtest on 1-minute bars validated; 5-minute used for speed.
+
+// ✅ Strategy 5: Secondary validation
+// Run parallel backtest on lower timeframe to validate results
+// Document: "Strategy validated on 1m bars; 5m backtest for overview"
+```
+
+**Recommended Validation:**
+1. Backtest strategy on current timeframe (e.g., 5-minute)
+2. Re-run same strategy on lower timeframe (e.g., 1-minute)
+3. Compare win rates and profit factors
+4. If significant divergence (>10% win rate difference), document and use lower timeframe results
+
+**When This Check is CRITICAL vs. WARNING:**
+- **CRITICAL**: Small exits (<1× ATR) on timeframes ≥5 minutes
+- **HIGH**: Moderate exits (1-2× ATR) on timeframes ≥15 minutes  
+- **WARNING**: Wide exits (>3× ATR) or lower timeframes (<5 minutes)
+
+**Guidance:** 
+This is not a bug, but a **backtest assumption**. Always validate tight-exit strategies on lower timeframes or document the within-bar execution assumption explicitly.
+
+---
+
 ## H) Observability (WARNING, Dev-Recommended)
 
 Helps catch upside-down logic quickly in visual review.
@@ -1153,6 +1739,161 @@ if debugModeInput
 
 ---
 
+### H4. Pre-Flight Status Block (Metadata Logging)
+
+**Practice:** Include a metadata block or status output that explicitly reports the state of critical checks, filters, and configuration.
+
+**Purpose:**
+When debugging screenshots, backtest reports, or live trading issues, having a "Pre-Flight" status display makes it immediately clear:
+- Which filters are active
+- What parameter values are being used
+- Whether external data is valid
+- Session state and boundaries
+
+**Benefits:**
+- **Debugging**: Screenshots instantly show configuration state
+- **Validation**: Quickly verify strategy is running with correct parameters
+- **Documentation**: Backtest screenshots self-document the configuration
+- **Troubleshooting**: Identify why trades didn't fire (which veto was active)
+
+**GOOD Examples:**
+
+**Option 1: Table Display (Most Comprehensive)**
+```pine
+// ✅ Pre-flight status table
+bool showStatusInput = input.bool(true, "Show Status Table", 
+  tooltip="Display strategy configuration and current state")
+
+if showStatusInput and barstate.islast
+  var table statusTable = table.new(position.top_right, 2, 10, 
+    bgcolor=color.new(color.gray, 85), frame_width=1, frame_color=color.gray)
+  
+  // Header
+  table.cell(statusTable, 0, 0, "Parameter", bgcolor=color.gray, text_color=color.white)
+  table.cell(statusTable, 1, 0, "Value", bgcolor=color.gray, text_color=color.white)
+  
+  // Configuration
+  table.cell(statusTable, 0, 1, "ATR Filter")
+  table.cell(statusTable, 1, 1, minAtrInput > 0 ? 
+    "Active (" + str.tostring(minAtrInput, "#.##") + ")" : "Disabled")
+  
+  table.cell(statusTable, 0, 2, "Slippage")
+  table.cell(statusTable, 1, 2, str.tostring(slippageInput, "#.##") + " pts")
+  
+  table.cell(statusTable, 0, 3, "Commission")
+  table.cell(statusTable, 1, 3, "$" + str.tostring(commissionInput, "#.##"))
+  
+  // Current State
+  table.cell(statusTable, 0, 4, "TICK Data")
+  table.cell(statusTable, 1, 4, tickValid ? 
+    str.tostring(tickValue, "#") : "UNAVAILABLE", 
+    bgcolor=tickValid ? color.new(color.green, 80) : color.new(color.red, 80))
+  
+  table.cell(statusTable, 0, 5, "Session")
+  table.cell(statusTable, 1, 5, isRth ? "RTH" : "Non-RTH",
+    bgcolor=isRth ? color.new(color.blue, 80) : color.new(color.gray, 80))
+  
+  table.cell(statusTable, 0, 6, "Trades Today")
+  table.cell(statusTable, 1, 6, str.tostring(tradesToday) + " / " + str.tostring(maxTradesInput))
+  
+  table.cell(statusTable, 0, 7, "Can Trade")
+  table.cell(statusTable, 1, 7, canTrade ? "YES" : "NO",
+    bgcolor=canTrade ? color.new(color.green, 80) : color.new(color.red, 80))
+```
+
+**Option 2: Pine Logs (Lightweight)**
+```pine
+// ✅ Pre-flight checks logged at session start
+if isFirstBar
+  log.info("═══ STRATEGY PRE-FLIGHT ═══")
+  log.info("ATR Filter: " + (minAtrInput > 0 ? 
+    "Active (min " + str.tostring(minAtrInput) + ")" : "Disabled"))
+  log.info("TICK Veto: " + (useTickFilter ? 
+    "Active (threshold " + str.tostring(tickThreshold) + ")" : "Disabled"))
+  log.info("Max Trades/Day: " + str.tostring(maxTradesInput))
+  log.info("Commission: $" + str.tostring(commissionInput) + " per side")
+  log.info("Slippage: " + str.tostring(slippageInput) + " pts")
+  log.info("═══════════════════════════")
+```
+
+**Option 3: Chart Label (Minimal)**
+```pine
+// ✅ Minimal status label on first bar
+bool showStatusInput = input.bool(true, "Show Config Label")
+
+if showStatusInput and bar_index == 0
+  string statusText = "Config: " +
+    "ATR>" + str.tostring(minAtrInput) + " | " +
+    "MaxTrades=" + str.tostring(maxTradesInput) + " | " +
+    "TICK " + (useTickFilter ? "ON" : "OFF")
+  
+  label.new(bar_index, high, statusText,
+    style=label.style_label_down,
+    color=color.new(color.blue, 70),
+    textcolor=color.white,
+    size=size.normal)
+```
+
+**Option 4: Comprehensive On-Chart Display**
+```pine
+// ✅ Full status with veto reasons
+bool showStatusInput = input.bool(true, "Show Strategy Status")
+
+if showStatusInput and barstate.islast
+  var table statusTable = table.new(position.bottom_right, 2, 12)
+  
+  // Strategy Info
+  table.cell(statusTable, 0, 0, "Strategy Status", 
+    colspan=2, bgcolor=color.new(color.navy, 70), text_color=color.white)
+  
+  // Active Filters
+  row = 1
+  table.cell(statusTable, 0, row, "ATR Filter:", text_halign=text.align_left)
+  table.cell(statusTable, 1, row, atr >= minAtrInput ? "✓ PASS" : "✗ VETO",
+    text_color=atr >= minAtrInput ? color.green : color.red)
+  
+  row += 1
+  table.cell(statusTable, 0, row, "TICK Filter:")
+  table.cell(statusTable, 1, row, not tickVeto ? "✓ PASS" : "✗ VETO",
+    text_color=not tickVeto ? color.green : color.red)
+  
+  row += 1  
+  table.cell(statusTable, 0, row, "Trade Limit:")
+  table.cell(statusTable, 1, row, 
+    str.tostring(tradesToday) + "/" + str.tostring(maxTradesInput),
+    text_color=tradesToday < maxTradesInput ? color.green : color.red)
+  
+  row += 1
+  table.cell(statusTable, 0, row, "Session:")
+  table.cell(statusTable, 1, row, isRth ? "RTH ✓" : "Non-RTH",
+    text_color=isRth ? color.green : color.gray)
+  
+  // Overall Status
+  row += 1
+  table.cell(statusTable, 0, row, "CAN TRADE:", 
+    colspan=2, bgcolor=canTrade ? color.new(color.green, 80) : color.new(color.red, 80),
+    text_color=color.white, text_size=size.large)
+```
+
+**When to Use Each:**
+- **Table Display**: Development, debugging, education, monitoring
+- **Pine Logs**: Lightweight verification, parameter confirmation
+- **Chart Label**: Minimal overhead, permanent config marker
+- **Comprehensive Display**: Complex strategies, multiple filters, live monitoring
+
+**Standard 8.4 Recommendation:**
+Every strategy SHOULD include at least one of these pre-flight displays, togglable via `input.bool()`, to facilitate:
+- Visual verification in screenshots
+- Debugging configuration issues
+- Confirming filter states during analysis
+- Documentation of backtest parameters
+
+**Detection:**
+- **RECOMMENDED**: Strategy includes status table, log output, or label showing configuration
+- **OPTIONAL**: Can be disabled for production, but encouraged during development
+
+---
+
 ## Quick Reference Checklist
 
 Use this condensed checklist for daily code reviews. See sections above for details.
@@ -1170,8 +1911,11 @@ Use this condensed checklist for daily code reviews. See sections above for deta
 - [ ] B1: strategy.entry uses only strategy.long/short
 - [ ] B2: strategy.exit stop/limit not swapped; no na prices
 - [ ] B3: Functions receive correct types (ta.barssince(bool), etc.)
-- [ ] B4: request.security has explicit lookahead and gaps handling
+- [ ] B4: request.security has explicit lookahead, gaps, AND data persistence handling
 - [ ] B5: All var have explicit type and initial value
+- [ ] B6: Pyramiding logic matches settings (position checks if pyramiding=0)
+- [ ] B7: Repainting patterns flagged (calc_on_every_tick, lookahead)
+- [ ] B8: All ta.* functions called unconditionally (not wrapped in if/loops)
 
 **C) Directionality:**
 - [ ] C1: Long stops below entry, short stops above entry
@@ -1209,11 +1953,13 @@ Use this condensed checklist for daily code reviews. See sections above for deta
 - [ ] G1: Commission reasonable for asset
 - [ ] G2: Stop distance reasonable (prefer ATR-normalized checks)
 - [ ] G3: Entry conditions not always/never true
+- [ ] G4: Bar Magnifier assumption documented (tight stops/targets on higher TF)
 
 **H) Observability:**
 - [ ] H1: Key states visualized during development
 - [ ] H2: Veto reasons visible
 - [ ] H3: Debug visuals behind input toggle
+- [ ] H4: Pre-flight status block showing config/filter states (recommended)
 
 ---
 
@@ -1252,6 +1998,7 @@ Use this condensed checklist for daily code reviews. See sections above for deta
 - **v1.0** - Initial release
 - **v1.1** - Added Q&A section responses
 - **v1.2** - Added A5 (time arithmetic), B5 (var init), C5 (price refs), E4 (symbol availability), H3 (debug toggle)
+- **v1.3** - Added B4 expansion (data persistence), B8 (ta.* function scoping), G4 (Bar Magnifier), H4 (pre-flight status)
 
 ---
 

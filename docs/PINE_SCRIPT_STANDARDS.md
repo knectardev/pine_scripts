@@ -366,6 +366,85 @@ if showSignalsInput
     plot(signal, "Signal")
 ```
 
+### 5.5 Call ta.* Functions Unconditionally
+
+**CRITICAL:** All `ta.*` (technical analysis) functions must be called at global scope on every bar, NOT inside conditional blocks.
+
+**Why:** `ta.*` functions maintain internal state across bars. Calling them conditionally breaks this state, causing incorrect values and `na` errors.
+
+```pine
+// ❌ BAD - ta. functions inside conditionals
+if isRth
+    float rsi = ta.rsi(close, 14)  // State corrupted outside RTH!
+    float atr = ta.atr(14)          // Broken state
+
+if condition
+    float ma = ta.sma(close, 50)    // State inconsistent
+
+// ✅ GOOD - Calculate at global scope, use conditionally
+// ————— Calculations
+float rsi = ta.rsi(close, 14)  // Every bar
+float atr = ta.atr(14)          // Every bar  
+float ma = ta.sma(close, 50)    // Every bar
+
+// ————— Strategy Calls
+if isRth and rsi < 30
+    strategy.entry("Long", strategy.long)
+
+if condition and close > ma
+    // Use the value
+```
+
+**This applies to all ta.* functions:**
+- `ta.sma()`, `ta.ema()`, `ta.wma()`, etc.
+- `ta.rsi()`, `ta.macd()`, `ta.stoch()`, etc.
+- `ta.atr()`, `ta.tr()`, etc.
+- `ta.barssince()`, `ta.valuewhen()`, etc.
+- `ta.highest()`, `ta.lowest()`, etc.
+- `ta.crossover()`, `ta.crossunder()`, etc.
+
+**Pattern to follow:**
+```pine
+// 1. Calculate all technical indicators at top (Calculations section)
+float fastMA = ta.ema(close, 12)
+float slowMA = ta.ema(close, 26)
+float rsiValue = ta.rsi(close, 14)
+float atrValue = ta.atr(14)
+int barsSinceCross = ta.barssince(ta.crossover(fastMA, slowMA))
+
+// 2. Then use them in conditional logic (Strategy Calls section)
+if isRth and rsiValue < 30 and fastMA > slowMA
+    strategy.entry("Long", strategy.long)
+```
+
+**Best Practice: When You Need "Conditional" Calculations**
+
+If you think you need to calculate a `ta.*` function only under certain conditions:
+
+❌ **Don't do this:**
+```pine
+if isRth
+    float rsi = ta.rsi(close, 14)  // WRONG - breaks state!
+    if rsi < 30
+        strategy.entry("Long", strategy.long)
+```
+
+✅ **Do this instead:**
+```pine
+// Calculate globally (unconditionally)
+float rsi = ta.rsi(close, 14)
+
+// Use the variable conditionally
+if isRth and rsi < 30
+    strategy.entry("Long", strategy.long)
+```
+
+**Key Principle:** Calculate `ta.*` functions globally, use the results conditionally.
+
+The calculation happens every bar (maintaining state), but you only *use* the value when your conditions are met.
+
+**See Also:** `/docs/LOGICAL_SANITY_CHECKS.md` Section B8 for detailed examples and reasoning.
+
 ---
 
 ## 6. Pine Script Limitations
@@ -603,6 +682,7 @@ Before committing any Pine Script, verify:
 - [ ] Spaces around all operators
 - [ ] Line wrapping uses 2-space indentation
 - [ ] No unnecessary recalculations
+- [ ] All `ta.*` functions called unconditionally at global scope (not in `if` blocks)
 - [ ] Stays within 64 plot limit
 - [ ] Manages drawing object lifecycle
 - [ ] Checks for sufficient historical data before calculations
@@ -667,6 +747,6 @@ bgcolor(signal ? color.new(bullColorInput, 90) : na)
 
 ---
 
-**Document Version:** 1.0.0  
+**Document Version:** 1.1.0  
 **Pine Script Version:** 5  
 **Last Reviewed:** January 8, 2026

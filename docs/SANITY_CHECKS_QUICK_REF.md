@@ -21,8 +21,11 @@
 - [ ] **B1:** `strategy.entry()` uses only `strategy.long` or `strategy.short`
 - [ ] **B2:** `strategy.exit()` stop/limit not swapped; no `na` prices without guards
 - [ ] **B3:** Type compatibility (`ta.barssince(bool)`, no bool/int confusion)
-- [ ] **B4:** `request.security()` has explicit `lookahead` and `gaps` handling
+- [ ] **B4:** `request.security()` has explicit `lookahead`, `gaps`, AND data persistence (na fallbacks)
 - [ ] **B5:** All `var` declarations have explicit type and initial value
+- [ ] **B6:** Pyramiding logic matches settings (check `strategy.position_size == 0` if pyramiding=0)
+- [ ] **B7:** Repainting patterns explicit (`calc_on_every_tick`, `request.security` lookahead)
+- [ ] **B8:** All `ta.*` functions called unconditionally (not inside `if` blocks or loops)
 
 #### C) Directionality & Polarity
 - [ ] **C1:** Long stops **below** entry, short stops **above** entry ← **Critical upside-down check**
@@ -44,6 +47,10 @@
 
 ### ⚠️ HIGH (Should Pass) — Review & Fix or Document
 
+#### B) Pine Script Semantics
+- [ ] **B6:** Pyramiding logic coherent (if pyramiding=0, check position before entry; if enabled, document intent)
+- [ ] **B7:** Repainting risks documented (`calc_on_every_tick` with bar functions, `request.security` lookahead)
+
 #### C) Directionality
 - [ ] **C4:** Entry IDs match direction (ID "Long" uses `strategy.long`, not `strategy.short`)
 
@@ -64,11 +71,13 @@
 - [ ] **G1:** Commission < ~10% of typical trade value (context-dependent)
 - [ ] **G2:** Stop distance reasonable for asset (prefer ATR-normalized: `stopDist > 4*ATR` → warning)
 - [ ] **G3:** Entry frequency not suspicious (not almost-always or almost-never true)
+- [ ] **G4:** Bar Magnifier assumption documented (tight stops/targets validated on lower TF)
 
 #### H) Observability (Dev Best Practice)
 - [ ] **H1:** Key states visualized during dev (OR levels, veto flags, session boundaries)
 - [ ] **H2:** Veto reasons visible (labels/plots when veto active)
 - [ ] **H3:** Debug visuals behind `input.bool(debugMode)` toggle
+- [ ] **H4:** Pre-flight status block (table/logs showing config and filter states)
 
 ---
 
@@ -132,6 +141,73 @@ gapPct = (open - rthClose) / rthClose  // CRASH!
 // ✅ GOOD: Guard with check
 gapPct = (not na(rthClose) and rthClose != 0) ?
   (open - rthClose) / rthClose : na
+```
+
+### 6. Pyramiding Logic Mismatch (B6)
+```pine
+// ❌ BAD: pyramiding=0 but multiple entry attempts
+strategy("Test", overlay=true)  // pyramiding=0 by default
+
+if crossover(ma1, ma2)
+  strategy.entry("Long", strategy.long)
+if rsi < 30
+  strategy.entry("Long", strategy.long)  // Silently ignored if already long!
+
+// ✅ GOOD: Check position before entry
+if crossover(ma1, ma2) and strategy.position_size == 0
+  strategy.entry("Long", strategy.long)
+```
+
+### 7. Repainting Risk (B7)
+```pine
+// ❌ BAD: request.security without explicit lookahead
+dailyClose = request.security(syminfo.tickerid, "D", close)
+// Historical: sees future (completed bar)
+// Real-time: bar still forming
+
+// ✅ GOOD: Explicit lookahead_off
+dailyClose = request.security(syminfo.tickerid, "D", close,
+  barmerge.gaps_off, barmerge.lookahead_off)
+```
+
+### 8. ta. Functions in Conditionals (B8)
+```pine
+// ❌ BAD: ATR only calculated conditionally
+if isRth
+  float atr = ta.atr(14)  // State breaks outside RTH!
+
+// Later: atr is stale or na
+
+// ✅ GOOD: Calculate unconditionally, use conditionally
+float atr = ta.atr(14)  // Every bar
+
+if isRth
+  stopDist = 2 * atr  // Use the value
+```
+
+### 9. External Data Persistence (B4 expanded)
+```pine
+// ❌ BAD: No fallback for na data
+tickValue = request.security("NYSE:TICK", timeframe.period, close)
+if tickValue > 700  // na > 700 = false (silent failure!)
+  // Veto intended but not applied
+
+// ✅ GOOD: Explicit na handling
+tickValue = request.security("NYSE:TICK", timeframe.period, close,
+  barmerge.gaps_off, barmerge.lookahead_off)
+tickValid = not na(tickValue)
+tickVeto = tickValid ? (tickValue > 700) : true  // Fail-closed
+```
+
+### 10. Bar Magnifier Assumption (G4)
+```pine
+// ⚠️ WARNING: Tight stops on 5-min bars
+// If bar range includes both stop AND target,
+// backtest assumes target hit first (optimistic!)
+
+// Solution: Validate on 1-min bars or document assumption
+// EXECUTION MODEL: Bar Magnifier favorable execution assumed
+// Strategy validated on 1m timeframe; 5m used for overview
 ```
 
 ---
@@ -214,4 +290,4 @@ Strategy logic and trading decisions remain **entirely your domain expertise**.
 - `/docs/PINE_SCRIPT_STANDARDS.md` — Coding standards (Categories 1-8)
 - `/.cursorrules` — Complete code review checklist (Categories 1-9)
 
-**Version:** 1.2 | **Last Updated:** January 8, 2026
+**Version:** 1.3 | **Last Updated:** January 8, 2026

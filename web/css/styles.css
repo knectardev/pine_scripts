@@ -368,14 +368,22 @@ tbody tr:hover {
 }
 
 .close {
-    color: var(--text-secondary);
-    position: absolute;
-    right: 20px;
-    top: 20px;
-    font-size: 28px;
-    font-weight: bold;
-    cursor: pointer;
+    color: var(--text-secondary) !important;
+    position: absolute !important;
+    right: 30px !important;
+    top: 20px !important;
+    font-size: 28px !important;
+    font-weight: bold !important;
+    cursor: pointer !important;
     transition: color 0.3s;
+    z-index: 10001 !important;
+    line-height: 1 !important;
+    padding: 5px !important;
+    background: transparent !important;
+    border: none !important;
+    display: inline-block !important;
+    width: auto !important;
+    height: auto !important;
 }
 
 .close:hover {
@@ -384,6 +392,10 @@ tbody tr:hover {
 
 .modal-header {
     margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
 }
 
 .modal-header h2 {
@@ -545,6 +557,181 @@ tbody tr:hover {
     background: var(--primary-color);
 }
 
+/* Code Modal Styles */
+.modal-code {
+    max-width: 1200px;
+    width: 95%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.code-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.code-modal-header h2 {
+    margin: 0;
+    color: var(--primary-color);
+}
+
+/* Specific styling for code modal close button */
+#codeModal .close {
+    position: absolute !important;
+    right: 15px !important;
+    top: 15px !important;
+    z-index: 99999 !important;
+    color: #fff !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    border-radius: 4px !important;
+    width: 40px !important;
+    height: 40px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    pointer-events: auto !important;
+}
+
+#codeModal .close:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    color: #fff !important;
+}
+
+.code-info {
+    margin-bottom: 15px;
+    padding: 10px;
+    background: var(--dark-bg);
+    border-radius: 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.code-container {
+    flex: 1;
+    overflow: auto;
+    background: var(--dark-bg);
+    border-radius: 8px;
+    border: 2px solid var(--border-color);
+}
+
+.code-container pre {
+    margin: 0;
+    padding: 20px;
+    overflow-x: auto;
+}
+
+.code-container code {
+    font-family: 'Courier New', Monaco, monospace;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    white-space: pre;
+    display: block;
+}
+
+/* Pine Script Syntax Highlighting - TradingView Style */
+.code-container .hljs {
+    background: var(--dark-bg);
+    color: #D4D4D4;
+    padding: 0;
+}
+
+/* Keywords (if, else, for, var, const, and, or, not, true, false) */
+.code-container .hljs-keyword {
+    color: #C586C0;
+    font-weight: normal;
+}
+
+/* Built-in functions (strategy.entry, ta.sma, input.float, etc.) */
+.code-container .hljs-built_in {
+    color: #4EC9B0;
+    font-weight: normal;
+}
+
+/* Strings */
+.code-container .hljs-string {
+    color: #CE9178;
+}
+
+/* Numbers */
+.code-container .hljs-number {
+    color: #B5CEA8;
+}
+
+/* Comments */
+.code-container .hljs-comment {
+    color: #6A9955;
+    font-style: italic;
+}
+
+/* Function names (user-defined and built-in) */
+.code-container .hljs-function .hljs-title {
+    color: #DCDCAA;
+}
+
+/* Literals (na) */
+.code-container .hljs-literal {
+    color: #569CD6;
+}
+
+/* Types (int, float, bool, string) */
+.code-container .hljs-type {
+    color: #4EC9B0;
+}
+
+/* Operators (=, ==, +, -, *, /, etc.) */
+.code-container .hljs-operator {
+    color: #D4D4D4;
+}
+
+/* Variables and identifiers */
+.code-container .hljs-variable,
+.code-container .hljs-attr {
+    color: #9CDCFE;
+}
+
+/* Parameters */
+.code-container .hljs-params {
+    color: #9CDCFE;
+}
+
+/* Add line numbers styling (optional enhancement) */
+.code-container code.hljs {
+    counter-reset: line;
+}
+
+.code-container code.hljs .line {
+    counter-increment: line;
+}
+
+.code-container code.hljs .line::before {
+    content: counter(line);
+    display: inline-block;
+    width: 3em;
+    padding-right: 1em;
+    text-align: right;
+    color: #858585;
+    border-right: 1px solid #404040;
+    margin-right: 1em;
+    user-select: none;
+}
+
+.btn-code {
+    background: var(--warning-color);
+    color: white;
+}
+
+.btn-code:hover {
+    background: #f57c00;
+}
+
 @media (max-width: 768px) {
     header h1 {
         font-size: 1.8rem;
@@ -585,5 +772,219 @@ tbody tr:hover {
         width: 100%;
         font-size: 0.8rem;
         padding: 4px 8px;
+    }
+}
+
+/* Code Review Modal Styles */
+.modal-review {
+    max-width: 900px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.review-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.review-modal-header h2 {
+    margin: 0;
+}
+
+.review-modal-header .btn {
+    white-space: nowrap;
+}
+
+.review-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-bottom: 25px;
+    padding: 20px;
+    background: var(--dark-bg);
+    border-radius: 8px;
+}
+
+.review-summary-item {
+    text-align: center;
+    padding: 15px;
+    background: var(--card-bg);
+    border-radius: 6px;
+}
+
+.review-summary-item h3 {
+    font-size: 2rem;
+    margin-bottom: 5px;
+}
+
+.review-summary-item.critical h3 {
+    color: var(--danger-color);
+}
+
+.review-summary-item.high h3 {
+    color: var(--warning-color);
+}
+
+.review-summary-item.warning h3 {
+    color: #ffc107;
+}
+
+.review-summary-item.pass h3 {
+    color: var(--success-color);
+}
+
+.review-summary-item p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.review-section {
+    margin-bottom: 25px;
+}
+
+.review-section h3 {
+    font-size: 1.3rem;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.review-item {
+    background: var(--card-bg);
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    border-left: 4px solid var(--border-color);
+}
+
+.review-item.severity-critical {
+    border-left-color: var(--danger-color);
+    background: rgba(244, 67, 54, 0.05);
+}
+
+.review-item.severity-high {
+    border-left-color: var(--warning-color);
+    background: rgba(255, 152, 0, 0.05);
+}
+
+.review-item.severity-warning {
+    border-left-color: #ffc107;
+    background: rgba(255, 193, 7, 0.05);
+}
+
+.review-item.severity-pass {
+    border-left-color: var(--success-color);
+    background: rgba(76, 175, 80, 0.05);
+}
+
+.review-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.review-item-title {
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.review-item-badge {
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.review-item-badge.critical {
+    background: var(--danger-color);
+    color: white;
+}
+
+.review-item-badge.high {
+    background: var(--warning-color);
+    color: white;
+}
+
+.review-item-badge.warning {
+    background: #ffc107;
+    color: #000;
+}
+
+.review-item-badge.info {
+    background: var(--secondary-color);
+    color: white;
+}
+
+.review-item-badge.pass {
+    background: var(--success-color);
+    color: white;
+}
+
+.review-item-message {
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 8px;
+}
+
+.review-item-code {
+    background: var(--dark-bg);
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 10px;
+    font-family: 'Courier New', Monaco, monospace;
+    font-size: 0.85rem;
+    overflow-x: auto;
+    color: #CE9178;
+}
+
+.review-recommendations {
+    background: var(--dark-bg);
+    padding: 20px;
+    border-radius: 8px;
+    margin-top: 25px;
+}
+
+.review-recommendations h3 {
+    font-size: 1.2rem;
+    margin-bottom: 15px;
+    color: var(--primary-color);
+}
+
+.review-recommendations ul {
+    list-style-position: inside;
+    color: var(--text-secondary);
+    line-height: 1.8;
+}
+
+.review-recommendations li {
+    margin-bottom: 8px;
+}
+
+.review-loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-secondary);
+}
+
+.review-loading::after {
+    content: '...';
+    animation: dots 1.5s infinite;
+}
+
+@keyframes dots {
+    0%, 20% {
+        content: '.';
+    }
+    40% {
+        content: '..';
+    }
+    60%, 100% {
+        content: '...';
     }
 }

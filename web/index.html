@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pine Script Library</title>
     <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -86,6 +89,44 @@
             <div class="modal-content">
                 <span class="close">&times;</span>
                 <div id="modalBody">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <div id="codeModal" class="modal">
+            <div class="modal-content modal-code">
+                <span class="close" onclick="closeCodeModal()">&times;</span>
+                <div id="codeModalHeader" class="code-modal-header">
+                    <h2 id="codeModalTitle">Pine Script Code</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-secondary" onclick="reviewCode()">
+                            <span id="reviewButtonText">🔍 Code Review</span>
+                        </button>
+                        <button class="btn btn-primary" onclick="copyCode()">
+                            <span id="copyButtonText">📋 Copy Code</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="code-info">
+                    <span id="codeFilePath"></span>
+                </div>
+                <div class="code-container">
+                    <pre><code id="codeContent" class="language-pinescript"></code></pre>
+                </div>
+            </div>
+        </div>
+
+        <div id="reviewModal" class="modal">
+            <div class="modal-content modal-review">
+                <span class="close" onclick="closeReviewModal()">&times;</span>
+                <div class="review-modal-header">
+                    <h2>📋 Code Review Report</h2>
+                    <button class="btn btn-primary" onclick="exportReviewToPDF()" id="exportPdfBtn" style="display: none;">
+                        <span id="exportButtonText">📄 Export PDF</span>
+                    </button>
+                </div>
+                <div id="reviewModalBody">
                     <!-- Populated by JavaScript -->
                 </div>
             </div>
@@ -220,5 +261,6 @@
     </div>
 
     <script src="js/app.js"></script>
+    <script src="js/pine-highlight.js"></script>
 </body>
 </html>

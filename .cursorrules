@@ -77,6 +77,7 @@ Before creating or modifying any Pine Script file, the AI MUST validate against 
 - [ ] Built-in functions used instead of manual calculations where available
 - [ ] Values used multiple times are stored in variables (not recalculated)
 - [ ] Arrays and objects use `var` keyword for persistence
+- [ ] All `ta.*` functions called unconditionally at global scope (not inside `if` blocks or loops)
 
 **7. Limitations Compliance (CRITICAL)**
 - [ ] Total plot count ≤ 64 (includes plot, plotshape, plotchar, hline, fill, alertcondition)
@@ -95,19 +96,22 @@ Before creating or modifying any Pine Script file, the AI MUST validate against 
 
 CRITICAL - Must Pass:
 - [ ] A1-A5: No OHLC violations, division by zero, negative periods, unbounded percents, time unit mixing
-- [ ] B1-B5: strategy.long/short only, exit params correct, type compatibility, request.security explicit, var initialization
+- [ ] B1-B5: strategy.long/short only, exit params correct, type compatibility, request.security with lookahead/gaps/na-fallbacks, var initialization
+- [ ] B8: All ta.* functions called unconditionally (not inside if blocks or loops)
 - [ ] C1-C3, C5: Long stops below/short above entry, TP directions match, no sign flips, valid price references
 - [ ] D1-D4: All var have reset logic, session boundaries match intent, centralized gating, entry tracking resets
 - [ ] E1-E2: External data na behavior explicit, session alignment handled
 
 HIGH - Should Pass:
+- [ ] B6: Pyramiding logic matches settings (check position if pyramiding=0, document if adding to position)
+- [ ] B7: Repainting patterns flagged (calc_on_every_tick + bar functions, request.security without lookahead_off)
 - [ ] C4: Entry ID matches direction ("Long" uses strategy.long)
 - [ ] E3-E4: External symbols enumerated, symbol requirements documented
 - [ ] F1-F2, F4: Mutually exclusive entries, no always/never-true logic, exits reachable
 
 WARNINGS - Review Recommended:
-- [ ] G1-G3: Realistic commission, reasonable stops (ATR-normalized), entry frequency not suspicious
-- [ ] H1-H3: Key states visualized, veto reasons visible, debug behind toggle
+- [ ] G1-G4: Realistic commission, reasonable stops (ATR-normalized), entry frequency not suspicious, Bar Magnifier assumption documented
+- [ ] H1-H4: Key states visualized, veto reasons visible, debug behind toggle, pre-flight status block (recommended)
 
 **Reference:** See `/docs/LOGICAL_SANITY_CHECKS.md` for detailed examples, code snippets, and comprehensive guidance.
 

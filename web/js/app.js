@@ -180,6 +180,7 @@ function renderScripts() {
                 <td>
                     <div class="actions">
                         <button class="btn btn-primary" onclick="viewScript('${script.id}')">View</button>
+                        <button class="btn btn-code" onclick="viewCode('${script.id}')">View Code</button>
                         <button class="btn btn-edit" onclick="openEditModal('${script.id}')">Edit</button>
                         <button class="btn btn-delete" onclick="deleteScript('${script.id}')">Delete</button>
                     </div>
@@ -274,12 +275,15 @@ function viewScript(scriptId) {
     const modalBody = document.getElementById('modalBody');
     modalBody.innerHTML = `
         <div class="modal-header">
-            <h2>${escapeHtml(script.name)}</h2>
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <span class="badge badge-${script.type}">${capitalize(script.type)}</span>
-                <span class="badge badge-${script.status}">${capitalize(script.status)}</span>
-                <span class="badge" style="background: var(--dark-bg);">v${escapeHtml(script.version)}</span>
+            <div>
+                <h2>${escapeHtml(script.name)}</h2>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <span class="badge badge-${script.type}">${capitalize(script.type)}</span>
+                    <span class="badge badge-${script.status}">${capitalize(script.status)}</span>
+                    <span class="badge" style="background: var(--dark-bg);">v${escapeHtml(script.version)}</span>
+                </div>
             </div>
+            <button class="btn btn-code" onclick="viewCode('${script.id}')" style="margin-top: 10px;">📄 View Code</button>
         </div>
         
         <div class="modal-section">
@@ -396,6 +400,83 @@ function viewScript(scriptId) {
     
     const modal = document.getElementById('scriptModal');
     modal.style.display = 'block';
+}
+
+// Fetch script code
+async function fetchScriptCode(scriptId) {
+    try {
+        const response = await fetch(`${API_BASE}/scripts/${scriptId}/code`);
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to fetch script code');
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching script code:', error);
+        showNotification(`Error: ${error.message}`, 'error');
+        throw error;
+    }
+}
+
+// Open code viewer modal
+let currentScriptId = null;
+
+async function viewCode(scriptId) {
+    try {
+        currentScriptId = scriptId;  // Store for code review
+        const codeData = await fetchScriptCode(scriptId);
+        
+        // Update modal content
+        document.getElementById('codeModalTitle').textContent = codeData.name || 'Pine Script Code';
+        document.getElementById('codeFilePath').textContent = `File: ${codeData.filePath}`;
+        
+        const codeElement = document.getElementById('codeContent');
+        codeElement.textContent = codeData.code;
+        codeElement.className = 'language-pinescript';
+        
+        // Apply syntax highlighting
+        if (typeof hljs !== 'undefined') {
+            // Remove any previous highlighting
+            codeElement.removeAttribute('data-highlighted');
+            hljs.highlightElement(codeElement);
+            console.log('Syntax highlighting applied');
+        } else {
+            console.error('Highlight.js not available');
+        }
+        
+        // Show modal
+        const modal = document.getElementById('codeModal');
+        modal.style.display = 'block';
+    } catch (error) {
+        // Error already handled in fetchScriptCode
+    }
+}
+
+// Close code viewer modal
+function closeCodeModal() {
+    const modal = document.getElementById('codeModal');
+    modal.style.display = 'none';
+}
+
+// Copy code to clipboard
+function copyCode() {
+    const codeContent = document.getElementById('codeContent').textContent;
+    const copyButton = document.getElementById('copyButtonText');
+    
+    navigator.clipboard.writeText(codeContent).then(() => {
+        // Update button text temporarily
+        const originalText = copyButton.textContent;
+        copyButton.textContent = '✅ Copied!';
+        showNotification('Code copied to clipboard!', 'success');
+        
+        // Reset button text after 2 seconds
+        setTimeout(() => {
+            copyButton.textContent = originalText;
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy code:', err);
+        showNotification('Failed to copy code', 'error');
+    });
 }
 
 // Copy file path to clipboard
@@ -572,12 +653,346 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Modal close handlers
     const modal = document.getElementById('scriptModal');
-    const closeBtn = document.querySelector('.close');
+    const codeModal = document.getElementById('codeModal');
+    const editModal = document.getElementById('editModal');
+    const reviewModal = document.getElementById('reviewModal');
     
-    closeBtn.onclick = () => modal.style.display = 'none';
     window.onclick = (event) => {
         if (event.target === modal) {
             modal.style.display = 'none';
         }
+        if (event.target === codeModal) {
+            closeCodeModal();
+        }
+        if (event.target === editModal) {
+            closeEditModal();
+        }
+        if (event.target === reviewModal) {
+            closeReviewModal();
+        }
     };
 });
+
+// Code Review Functions
+let currentReviewData = null;
+
+async function reviewCode() {
+    if (!currentScriptId) {
+        showNotification('No script loaded for review', 'error');
+        return;
+    }
+    
+    try {
+        // Update button state
+        const reviewButton = document.getElementById('reviewButtonText');
+        const originalText = reviewButton.textContent;
+        reviewButton.textContent = '⏳ Reviewing...';
+        
+        // Fetch review
+        const response = await fetch(`${API_BASE}/scripts/${currentScriptId}/review`);
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to review code');
+        }
+        
+        const reviewData = await response.json();
+        currentReviewData = reviewData;  // Store for PDF export
+        
+        // Reset button
+        reviewButton.textContent = originalText;
+        
+        // Display review results
+        displayReviewResults(reviewData);
+        
+    } catch (error) {
+        console.error('Error reviewing code:', error);
+        showNotification(`Error: ${error.message}`, 'error');
+        
+        // Reset button
+        const reviewButton = document.getElementById('reviewButtonText');
+        reviewButton.textContent = '🔍 Code Review';
+    }
+}
+
+function displayReviewResults(reviewData) {
+    const modalBody = document.getElementById('reviewModalBody');
+    
+    // Count issues by severity
+    const criticalCount = reviewData.issues.filter(i => i.severity === 'CRITICAL').length;
+    const highCount = reviewData.issues.filter(i => i.severity === 'HIGH').length;
+    const warningCount = reviewData.issues.filter(i => i.severity === 'WARNING').length;
+    const passCount = reviewData.issues.filter(i => i.severity === 'PASS').length;
+    
+    // Build summary
+    let summaryHTML = `
+        <div class="review-summary">
+            <div class="review-summary-item critical">
+                <h3>${criticalCount}</h3>
+                <p>Critical Issues</p>
+            </div>
+            <div class="review-summary-item high">
+                <h3>${highCount}</h3>
+                <p>High Priority</p>
+            </div>
+            <div class="review-summary-item warning">
+                <h3>${warningCount}</h3>
+                <p>Warnings</p>
+            </div>
+            <div class="review-summary-item pass">
+                <h3>${passCount}</h3>
+                <p>Passed Checks</p>
+            </div>
+        </div>
+    `;
+    
+    // Overall assessment
+    let overallStatus = 'pass';
+    let overallMessage = '✅ All checks passed! Code follows Pine Script v5 standards.';
+    
+    if (criticalCount > 0) {
+        overallStatus = 'critical';
+        overallMessage = '🔴 Critical issues found! These must be fixed before deployment.';
+    } else if (highCount > 0) {
+        overallStatus = 'high';
+        overallMessage = '⚠️ High priority issues found. Review and fix recommended.';
+    } else if (warningCount > 0) {
+        overallStatus = 'warning';
+        overallMessage = '⚡ Minor warnings detected. Code is functional but could be improved.';
+    }
+    
+    summaryHTML += `
+        <div class="review-item severity-${overallStatus}" style="margin-bottom: 25px;">
+            <div class="review-item-header">
+                <span class="review-item-title">${overallMessage}</span>
+            </div>
+        </div>
+    `;
+    
+    // Group issues by category
+    const categories = {
+        'Script Structure': [],
+        'Naming Conventions': [],
+        'Formatting': [],
+        'Performance': [],
+        'Logical Sanity': [],
+        'Other': []
+    };
+    
+    reviewData.issues.forEach(issue => {
+        const category = issue.category || 'Other';
+        if (!categories[category]) {
+            categories[category] = [];
+        }
+        categories[category].push(issue);
+    });
+    
+    // Build issues HTML
+    let issuesHTML = '';
+    for (const [category, issues] of Object.entries(categories)) {
+        if (issues.length === 0) continue;
+        
+        issuesHTML += `
+            <div class="review-section">
+                <h3>${category}</h3>
+        `;
+        
+        issues.forEach(issue => {
+            const severityClass = issue.severity.toLowerCase();
+            issuesHTML += `
+                <div class="review-item severity-${severityClass}">
+                    <div class="review-item-header">
+                        <span class="review-item-title">${escapeHtml(issue.check)}</span>
+                        <span class="review-item-badge ${severityClass}">${issue.severity}</span>
+                    </div>
+                    <div class="review-item-message">${escapeHtml(issue.message)}</div>
+                    ${issue.line ? `<div style="color: var(--text-secondary); font-size: 0.85rem;">Line ${issue.line}</div>` : ''}
+                    ${issue.code ? `<div class="review-item-code">${escapeHtml(issue.code)}</div>` : ''}
+                </div>
+            `;
+        });
+        
+        issuesHTML += '</div>';
+    }
+    
+    // Recommendations
+    let recommendationsHTML = '';
+    if (reviewData.recommendations && reviewData.recommendations.length > 0) {
+        recommendationsHTML = `
+            <div class="review-recommendations">
+                <h3>📚 Recommendations</h3>
+                <ul>
+                    ${reviewData.recommendations.map(rec => `<li>${escapeHtml(rec)}</li>`).join('')}
+                </ul>
+            </div>
+        `;
+    }
+    
+    // Combine all HTML
+    modalBody.innerHTML = summaryHTML + issuesHTML + recommendationsHTML;
+    
+    // Show export button
+    const exportBtn = document.getElementById('exportPdfBtn');
+    if (exportBtn) {
+        exportBtn.style.display = 'block';
+    }
+    
+    // Show modal
+    const modal = document.getElementById('reviewModal');
+    modal.style.display = 'block';
+}
+
+function closeReviewModal() {
+    const modal = document.getElementById('reviewModal');
+    modal.style.display = 'none';
+    // Hide export button
+    const exportBtn = document.getElementById('exportPdfBtn');
+    if (exportBtn) {
+        exportBtn.style.display = 'none';
+    }
+}
+
+// Export review to PDF
+async function exportReviewToPDF() {
+    if (!currentReviewData) {
+        showNotification('No review data available', 'error');
+        return;
+    }
+    
+    try {
+        // Update button state
+        const exportButton = document.getElementById('exportButtonText');
+        const originalText = exportButton.textContent;
+        exportButton.textContent = '⏳ Generating PDF...';
+        
+        // Get the review content
+        const element = document.getElementById('reviewModalBody');
+        
+        // Clone the element to avoid modifying the original
+        const clonedElement = element.cloneNode(true);
+        
+        // Create a wrapper for better PDF formatting
+        const wrapper = document.createElement('div');
+        wrapper.style.padding = '20px';
+        wrapper.style.backgroundColor = '#ffffff';
+        wrapper.style.color = '#000000';
+        wrapper.style.fontFamily = 'Arial, sans-serif';
+        
+        // Add header
+        const header = document.createElement('div');
+        header.style.marginBottom = '20px';
+        header.style.borderBottom = '2px solid #333';
+        header.style.paddingBottom = '10px';
+        header.innerHTML = `
+            <h1 style="margin: 0; color: #2962ff;">Pine Script Code Review Report</h1>
+            <p style="margin: 5px 0; color: #666;">Script: ${escapeHtml(currentReviewData.scriptName)}</p>
+            <p style="margin: 5px 0; color: #666;">Generated: ${new Date().toLocaleString()}</p>
+        `;
+        wrapper.appendChild(header);
+        
+        // Style the cloned content for PDF
+        styleForPDF(clonedElement);
+        wrapper.appendChild(clonedElement);
+        
+        // Configure PDF options
+        const opt = {
+            margin: [10, 10, 10, 10],
+            filename: `code-review-${currentReviewData.scriptName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${Date.now()}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { 
+                scale: 2,
+                useCORS: true,
+                backgroundColor: '#ffffff'
+            },
+            jsPDF: { 
+                unit: 'mm', 
+                format: 'a4', 
+                orientation: 'portrait'
+            },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+        
+        // Generate PDF
+        await html2pdf().set(opt).from(wrapper).save();
+        
+        // Reset button
+        exportButton.textContent = originalText;
+        showNotification('PDF exported successfully!', 'success');
+        
+    } catch (error) {
+        console.error('Error exporting PDF:', error);
+        showNotification(`Error exporting PDF: ${error.message}`, 'error');
+        
+        // Reset button
+        const exportButton = document.getElementById('exportButtonText');
+        exportButton.textContent = '📄 Export PDF';
+    }
+}
+
+// Style content for PDF export
+function styleForPDF(element) {
+    // Convert dark theme colors to print-friendly colors
+    const styleMap = {
+        'review-summary': 'border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; background: #f9f9f9;',
+        'review-summary-item': 'text-align: center; padding: 10px; border: 1px solid #ddd; background: #fff;',
+        'review-section': 'margin-bottom: 20px; page-break-inside: avoid;',
+        'review-item': 'border-left: 4px solid #ddd; padding: 12px; margin-bottom: 10px; background: #fff; page-break-inside: avoid;',
+        'review-item.severity-critical': 'border-left-color: #f44336; background: #ffebee;',
+        'review-item.severity-high': 'border-left-color: #ff9800; background: #fff3e0;',
+        'review-item.severity-warning': 'border-left-color: #ffc107; background: #fffde7;',
+        'review-item.severity-pass': 'border-left-color: #4caf50; background: #e8f5e9;',
+        'review-item-badge': 'padding: 4px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; color: #fff;',
+        'review-item-badge.critical': 'background: #f44336;',
+        'review-item-badge.high': 'background: #ff9800;',
+        'review-item-badge.warning': 'background: #ffc107; color: #000;',
+        'review-item-badge.pass': 'background: #4caf50;',
+        'review-item-code': 'background: #f5f5f5; padding: 8px; border-radius: 3px; font-family: monospace; font-size: 10px; color: #333; word-wrap: break-word;',
+        'review-recommendations': 'background: #f5f5f5; padding: 15px; border-radius: 5px; margin-top: 20px;'
+    };
+    
+    // Apply styles recursively
+    function applyStyles(el) {
+        const classList = Array.from(el.classList || []);
+        
+        // Check for direct class matches
+        for (const className of classList) {
+            if (styleMap[className]) {
+                el.style.cssText = styleMap[className];
+            }
+            
+            // Check for compound classes
+            for (const [selector, style] of Object.entries(styleMap)) {
+                if (selector.includes('.') && classList.some(c => selector.includes(c))) {
+                    const classes = selector.split('.');
+                    if (classes.every(c => !c || classList.includes(c))) {
+                        el.style.cssText = (el.style.cssText || '') + style;
+                    }
+                }
+            }
+        }
+        
+        // Apply general text color for readability
+        if (el.style.color === '' || window.getComputedStyle(el).color.includes('240')) {
+            el.style.color = '#333';
+        }
+        
+        // Process children
+        Array.from(el.children).forEach(child => applyStyles(child));
+    }
+    
+    applyStyles(element);
+    
+    // Apply h3 styling
+    element.querySelectorAll('h3').forEach(h3 => {
+        h3.style.color = '#2962ff';
+        h3.style.fontSize = '16px';
+        h3.style.marginBottom = '10px';
+        h3.style.borderBottom = '2px solid #ddd';
+        h3.style.paddingBottom = '5px';
+    });
+    
+    // Apply severity colors to summary items
+    element.querySelectorAll('.review-summary-item.critical h3').forEach(el => el.style.color = '#f44336');
+    element.querySelectorAll('.review-summary-item.high h3').forEach(el => el.style.color = '#ff9800');
+    element.querySelectorAll('.review-summary-item.warning h3').forEach(el => el.style.color = '#ffc107');
+    element.querySelectorAll('.review-summary-item.pass h3').forEach(el => el.style.color = '#4caf50');
+}
