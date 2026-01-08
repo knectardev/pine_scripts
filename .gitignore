@@ -1,0 +1,82 @@
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Editor and IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cursor/
+
+# Temporary Files
+*.tmp
+*.temp
+*.log
+*.bak
+*.backup
+*~
+
+# Node modules (if you add any build tools later)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Python (if you add any Python tools)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Backtest Screenshots (optional - comment out if you want to track these)
+# docs/backtests/*.png
+# docs/backtests/*.jpg
+
+# Private or WIP Scripts
+scripts/private/
+scripts/wip/
+scripts/experimental/
+
+# Data backups
+data/*.backup
+data/*.bak
+data/*-backup.json
+
+# Build outputs (if you add a build process)
+dist/
+build/
+*.min.js
+*.min.css
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Test outputs
+test-results/
+coverage/
+
+# Large files
+*.zip
+*.tar.gz
+*.rar
+
+# Personal notes
+NOTES.md
+TODO.md
+personal-notes.txt

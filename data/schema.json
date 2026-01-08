@@ -1,0 +1,194 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Pine Script Collection Schema",
+  "description": "Schema for tracking Pine Script indicators, strategies, and studies with backtest metrics",
+  "type": "object",
+  "properties": {
+    "scripts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "type", "version", "filePath", "dateCreated"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the script (e.g., uuid or slug)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name of the script"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["indicator", "strategy", "study"],
+            "description": "Type of Pine Script"
+          },
+          "version": {
+            "type": "string",
+            "description": "Script version (semantic versioning recommended)"
+          },
+          "pineVersion": {
+            "type": "integer",
+            "description": "Pine Script language version (usually 5)",
+            "default": 5
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of what the script does"
+          },
+          "filePath": {
+            "type": "string",
+            "description": "Relative path to the .pine file"
+          },
+          "dateCreated": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 date when script was created"
+          },
+          "dateModified": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 date when script was last modified"
+          },
+          "author": {
+            "type": "string",
+            "description": "Script author name"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Searchable tags (e.g., 'momentum', 'trend', 'volatility')"
+          },
+          "timeframes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Recommended timeframes (e.g., '1h', '4h', '1D')"
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "default": {
+                  "description": "Default value (can be any type)"
+                },
+                "description": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "List of input parameters"
+          },
+          "backtest": {
+            "type": "object",
+            "description": "Backtest results (primarily for strategies)",
+            "properties": {
+              "symbol": {
+                "type": "string",
+                "description": "Trading pair or symbol tested (e.g., 'BTCUSD')"
+              },
+              "timeframe": {
+                "type": "string",
+                "description": "Timeframe used for backtest (e.g., '1h', '4h')"
+              },
+              "startDate": {
+                "type": "string",
+                "format": "date",
+                "description": "Backtest start date"
+              },
+              "endDate": {
+                "type": "string",
+                "format": "date",
+                "description": "Backtest end date"
+              },
+              "initialCapital": {
+                "type": "number",
+                "description": "Starting capital for backtest"
+              },
+              "netProfit": {
+                "type": "number",
+                "description": "Total net profit/loss"
+              },
+              "netProfitPercent": {
+                "type": "number",
+                "description": "Net profit as percentage"
+              },
+              "totalTrades": {
+                "type": "integer",
+                "description": "Total number of closed trades"
+              },
+              "winningTrades": {
+                "type": "integer",
+                "description": "Number of winning trades"
+              },
+              "losingTrades": {
+                "type": "integer",
+                "description": "Number of losing trades"
+              },
+              "winRate": {
+                "type": "number",
+                "description": "Win rate percentage",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "profitFactor": {
+                "type": "number",
+                "description": "Ratio of gross profit to gross loss",
+                "minimum": 0
+              },
+              "maxDrawdown": {
+                "type": "number",
+                "description": "Maximum drawdown percentage"
+              },
+              "avgTrade": {
+                "type": "number",
+                "description": "Average profit/loss per trade"
+              },
+              "avgWinningTrade": {
+                "type": "number",
+                "description": "Average profit on winning trades"
+              },
+              "avgLosingTrade": {
+                "type": "number",
+                "description": "Average loss on losing trades"
+              },
+              "sharpeRatio": {
+                "type": "number",
+                "description": "Risk-adjusted return metric"
+              },
+              "notes": {
+                "type": "string",
+                "description": "Additional notes about backtest conditions"
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "testing", "deprecated", "archived"],
+            "description": "Current status of the script",
+            "default": "active"
+          },
+          "tradingviewUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to published script on TradingView (if published)"
+          },
+          "notes": {
+            "type": "string",
+            "description": "General notes or usage tips"
+          }
+        }
+      }
+    }
+  }
+}

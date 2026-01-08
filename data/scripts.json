@@ -1,0 +1,84 @@
+{
+  "scripts": [
+    {
+      "id": "example-ema-crossover-strategy",
+      "name": "EMA Crossover Strategy",
+      "type": "strategy",
+      "version": "1.0.0",
+      "pineVersion": 5,
+      "description": "Simple exponential moving average crossover strategy with configurable periods",
+      "filePath": "scripts/strategies/ema-crossover-strategy.pine",
+      "dateCreated": "2026-01-08T09:00:00Z",
+      "dateModified": "2026-01-08T09:00:00Z",
+      "author": "Your Name",
+      "tags": ["trend", "moving-average", "crossover", "beginner"],
+      "timeframes": ["1h", "4h", "1D"],
+      "parameters": [
+        {
+          "name": "fastLength",
+          "type": "int",
+          "default": 9,
+          "description": "Fast EMA period"
+        },
+        {
+          "name": "slowLength",
+          "type": "int",
+          "default": 21,
+          "description": "Slow EMA period"
+        }
+      ],
+      "backtest": {
+        "symbol": "BTCUSD",
+        "timeframe": "4h",
+        "startDate": "2023-01-01",
+        "endDate": "2025-12-31",
+        "initialCapital": 10000,
+        "netProfit": 2450.50,
+        "netProfitPercent": 24.51,
+        "totalTrades": 45,
+        "winningTrades": 28,
+        "losingTrades": 17,
+        "winRate": 62.22,
+        "profitFactor": 1.85,
+        "maxDrawdown": -12.5,
+        "avgTrade": 54.46,
+        "avgWinningTrade": 145.80,
+        "avgLosingTrade": -85.20,
+        "sharpeRatio": 1.42,
+        "notes": "Tested on BTCUSD 4H timeframe with default parameters"
+      },
+      "status": "active",
+      "notes": "Works best in trending markets. Consider adding filters for ranging conditions."
+    },
+    {
+      "id": "example-rsi-divergence-indicator",
+      "name": "RSI Divergence Detector",
+      "type": "indicator",
+      "version": "1.2.0",
+      "pineVersion": 5,
+      "description": "Automatically detects bullish and bearish divergences on RSI",
+      "filePath": "scripts/indicators/rsi-divergence-indicator.pine",
+      "dateCreated": "2026-01-05T14:30:00Z",
+      "dateModified": "2026-01-07T16:45:00Z",
+      "author": "Your Name",
+      "tags": ["rsi", "divergence", "oscillator", "reversal"],
+      "timeframes": ["15m", "1h", "4h"],
+      "parameters": [
+        {
+          "name": "rsiLength",
+          "type": "int",
+          "default": 14,
+          "description": "RSI calculation period"
+        },
+        {
+          "name": "pivotLookback",
+          "type": "int",
+          "default": 5,
+          "description": "Bars to look back for pivot detection"
+        }
+      ],
+      "status": "active",
+      "notes": "Best used on higher timeframes to reduce false signals"
+    }
+  ]
+}

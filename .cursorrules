@@ -1,0 +1,58 @@
+# Pine Script TradingView Project Rules
+
+## Project Overview
+This project contains Pine Script files for TradingView platform, including indicators, strategies, and studies.
+
+## Code Organization Rules
+
+### File Structure
+- Place all Pine Script files in appropriate subdirectories:
+  - `/scripts/indicators/` - Technical indicators (RSI, MACD, moving averages, etc.)
+  - `/scripts/strategies/` - Trading strategies with entry/exit logic
+  - `/scripts/studies/` - Other analysis tools and custom studies
+- Name files descriptively using lowercase with hyphens (e.g., `rsi-divergence-indicator.pine`)
+- Each Pine Script file should be self-contained and ready to copy-paste into TradingView
+
+### Pine Script Standards
+- Always use Pine Script version 5 (`//@version=5`)
+- Include comprehensive header comments with:
+  - Script name and description
+  - Author and version
+  - Parameters and their purposes
+  - Usage instructions
+- Use clear, descriptive variable names
+- Add inline comments for complex logic
+- Follow TradingView Pine Script style guide
+
+### Metadata Management
+- When creating or modifying Pine Scripts, update the corresponding JSON metadata in `/data/scripts.json`
+- Include all required fields: id, name, type, version, description, parameters, backtest metrics (for strategies)
+- Keep metadata synchronized with actual script files
+
+### Documentation
+- Document each script's purpose, inputs, and expected outputs
+- Include usage examples and screenshots in `/docs/` when applicable
+- Update README.md when adding new categories or significant features
+
+## Version Control
+- Commit Pine Script files with descriptive messages
+- Include version numbers in scripts and increment on changes
+- Tag releases with semantic versioning (v1.0.0, v1.1.0, etc.)
+
+## Testing & Validation
+- Test all scripts in TradingView before committing
+- Document backtest results for strategies in the JSON metadata
+- Include performance metrics: win rate, profit factor, max drawdown, total trades
+- Save backtest screenshots to `/docs/backtests/` folder
+
+## Web Interface
+- Keep the web interface synchronized with script metadata
+- Ensure all new scripts appear in the searchable grid
+- Update grid columns if new metadata fields are added
+
+## AI Assistant Guidelines
+- When creating new Pine Scripts, always create the corresponding JSON metadata entry
+- When asked about backtest performance, refer to the data in scripts.json
+- Suggest improvements based on TradingView best practices
+- Help optimize scripts for better performance and readability
+- Validate Pine Script syntax before saving files

@@ -1,0 +1,112 @@
+//@version=5
+indicator("RSI Divergence Detector", overlay=true)
+
+// ============================================================================
+// DESCRIPTION
+// ============================================================================
+// Automatically detects bullish and bearish divergences between price and RSI.
+// Marks divergences on the chart with lines and labels for easy identification.
+//
+// AUTHOR: Your Name
+// VERSION: 1.2.0
+// DATE: 2026-01-07
+//
+// PARAMETERS:
+// - rsiLength: Period for RSI calculation (default: 14)
+// - pivotLookback: Bars to look back/forward for pivot detection (default: 5)
+// - showRsiPanel: Display RSI in a separate panel (default: true)
+//
+// DIVERGENCE TYPES:
+// - Bullish Regular: Price makes lower low, RSI makes higher low (reversal signal)
+// - Bearish Regular: Price makes higher high, RSI makes lower high (reversal signal)
+// - Bullish Hidden: Price makes higher low, RSI makes lower low (continuation signal)
+// - Bearish Hidden: Price makes lower high, RSI makes higher high (continuation signal)
+//
+// USAGE:
+// Best used on higher timeframes (1H, 4H, Daily) to reduce false signals.
+// Confirm divergences with other indicators or price action.
+// ============================================================================
+
+// Input Parameters
+rsiLength = input.int(14, "RSI Length", minval=1)
+pivotLookback = input.int(5, "Pivot Lookback", minval=1)
+showRsiPanel = input.bool(true, "Show RSI Panel")
+
+// RSI Calculation
+rsi = ta.rsi(close, rsiLength)
+
+// Pivot Detection
+pivotHigh = ta.pivothigh(high, pivotLookback, pivotLookback)
+pivotLow = ta.pivotlow(low, pivotLookback, pivotLookback)
+
+rsiPivotHigh = ta.pivothigh(rsi, pivotLookback, pivotLookback)
+rsiPivotLow = ta.pivotlow(rsi, pivotLookback, pivotLookback)
+
+// Variables to store pivot values and bars
+var float lastPivotHigh = na
+var float lastPivotLow = na
+var float lastRsiPivotHigh = na
+var float lastRsiPivotLow = na
+var int lastPivotHighBar = na
+var int lastPivotLowBar = na
+
+// Update pivot values
+if not na(pivotHigh)
+    lastPivotHigh := pivotHigh
+    lastPivotHighBar := bar_index - pivotLookback
+
+if not na(pivotLow)
+    lastPivotLow := pivotLow
+    lastPivotLowBar := bar_index - pivotLookback
+
+if not na(rsiPivotHigh)
+    lastRsiPivotHigh := rsiPivotHigh
+
+if not na(rsiPivotLow)
+    lastRsiPivotLow := rsiPivotLow
+
+// Detect Divergences
+bullishRegular = not na(pivotLow) and not na(lastPivotLow) and 
+     pivotLow > lastPivotLow and rsiPivotLow < lastRsiPivotLow
+
+bearishRegular = not na(pivotHigh) and not na(lastPivotHigh) and 
+     pivotHigh < lastPivotHigh and rsiPivotHigh > lastRsiPivotHigh
+
+bullishHidden = not na(pivotLow) and not na(lastPivotLow) and 
+     pivotLow < lastPivotLow and rsiPivotLow > lastRsiPivotLow
+
+bearishHidden = not na(pivotHigh) and not na(lastPivotHigh) and 
+     pivotHigh > lastPivotHigh and rsiPivotHigh < lastRsiPivotHigh
+
+// Plot Signals
+plotshape(bullishRegular, "Bullish Regular Divergence", shape.labelup, 
+     location.belowbar, color=color.new(color.green, 0), text="Bull Div", 
+     textcolor=color.white, size=size.small)
+
+plotshape(bearishRegular, "Bearish Regular Divergence", shape.labeldown, 
+     location.abovebar, color=color.new(color.red, 0), text="Bear Div", 
+     textcolor=color.white, size=size.small)
+
+plotshape(bullishHidden, "Bullish Hidden Divergence", shape.labelup, 
+     location.belowbar, color=color.new(color.blue, 0), text="Bull HD", 
+     textcolor=color.white, size=size.tiny)
+
+plotshape(bearishHidden, "Bearish Hidden Divergence", shape.labeldown, 
+     location.abovebar, color=color.new(color.orange, 0), text="Bear HD", 
+     textcolor=color.white, size=size.tiny)
+
+// RSI Panel (optional)
+rsiPlot = plot(showRsiPanel ? rsi : na, "RSI", color=color.purple, linewidth=2)
+hline(70, "Overbought", color=color.red, linestyle=hline.style_dashed)
+hline(30, "Oversold", color=color.green, linestyle=hline.style_dashed)
+hline(50, "Midline", color=color.gray, linestyle=hline.style_dotted)
+
+// Background coloring for RSI overbought/oversold
+bgcolor(showRsiPanel and rsi > 70 ? color.new(color.red, 90) : na)
+bgcolor(showRsiPanel and rsi < 30 ? color.new(color.green, 90) : na)
+
+// Alerts
+alertcondition(bullishRegular, "Bullish Regular Divergence", "Bullish Regular Divergence detected!")
+alertcondition(bearishRegular, "Bearish Regular Divergence", "Bearish Regular Divergence detected!")
+alertcondition(bullishHidden, "Bullish Hidden Divergence", "Bullish Hidden Divergence detected!")
+alertcondition(bearishHidden, "Bearish Hidden Divergence", "Bearish Hidden Divergence detected!")

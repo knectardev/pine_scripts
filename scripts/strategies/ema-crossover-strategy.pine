@@ -1,0 +1,60 @@
+//@version=5
+strategy("EMA Crossover Strategy", 
+     overlay=true,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=10,
+     initial_capital=10000,
+     commission_type=strategy.commission.percent,
+     commission_value=0.1)
+
+// ============================================================================
+// DESCRIPTION
+// ============================================================================
+// Simple exponential moving average crossover strategy. Generates buy signals
+// when the fast EMA crosses above the slow EMA, and sell signals when the
+// fast EMA crosses below the slow EMA.
+//
+// AUTHOR: Your Name
+// VERSION: 1.0.0
+// DATE: 2026-01-08
+//
+// PARAMETERS:
+// - fastLength: Period for the fast EMA (default: 9)
+// - slowLength: Period for the slow EMA (default: 21)
+//
+// USAGE:
+// Works best in trending markets on 4H or daily timeframes.
+// Consider adding filters for ranging conditions.
+// ============================================================================
+
+// Input Parameters
+fastLength = input.int(9, "Fast EMA Length", minval=1)
+slowLength = input.int(21, "Slow EMA Length", minval=1)
+
+// Calculate EMAs
+fastEma = ta.ema(close, fastLength)
+slowEma = ta.ema(close, slowLength)
+
+// Plot EMAs
+plot(fastEma, "Fast EMA", color=color.new(color.blue, 0), linewidth=2)
+plot(slowEma, "Slow EMA", color=color.new(color.orange, 0), linewidth=2)
+
+// Generate Signals
+longCondition = ta.crossover(fastEma, slowEma)
+shortCondition = ta.crossunder(fastEma, slowEma)
+
+// Execute Trades
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+if (shortCondition)
+    strategy.close("Long")
+
+// Visual Signals
+plotshape(longCondition, "Buy Signal", shape.triangleup, location.belowbar, 
+     color=color.new(color.green, 0), size=size.small)
+plotshape(shortCondition, "Sell Signal", shape.triangledown, location.abovebar, 
+     color=color.new(color.red, 0), size=size.small)
+
+// Background coloring for trend
+bgcolor(fastEma > slowEma ? color.new(color.green, 95) : color.new(color.red, 95))
