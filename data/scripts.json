@@ -7,9 +7,9 @@
       "version": "2.5.0",
       "pineVersion": 5,
       "description": "Professional ES futures fade strategy trading opening gaps with comprehensive filters. Includes ATR volatility filter, NYSE TICK breadth analysis, execution penalty modeling for realistic slippage near market open, and sophisticated position management. Fully compliant with Pine Script v5 official coding standards.",
-      "filePath": "scripts\\strategies\\es-professional-fade-strategy\\v2.5.0\\v2.5.1\\v2.5.2\\v2.5.3.pine",
+      "filePath": "scripts\\strategies\\es-professional-fade-strategy\\v2.5.0\\v2.5.1\\v2.5.2\\v2.5.3\\v2.5.4.pine",
       "dateCreated": "2026-01-08T19:00:00Z",
-      "dateModified": "2026-01-08T18:55:18.342982Z",
+      "dateModified": "2026-01-08T19:01:15.119439Z",
       "author": "Your Name",
       "tags": [
         "es-futures",
@@ -153,10 +153,18 @@
           "dateCreated": "2026-01-08T18:55:18.342982Z",
           "changelog": "Smart Auto-fix (LLM): Fixed 1 critical and 7 high-priority issues. The changes made in the code are as follows:\n\n1. Moved the `ta.*` function calls to the global scope",
           "author": "smart-autofix",
+          "isActive": false
+        },
+        {
+          "version": "2.5.4",
+          "filePath": "scripts\\strategies\\es-professional-fade-strategy\\v2.5.0\\v2.5.1\\v2.5.2\\v2.5.3\\v2.5.4.pine",
+          "dateCreated": "2026-01-08T19:01:15.119439Z",
+          "changelog": "Smart Auto-fix (LLM): Fixed 1 critical and 7 high-priority issues. For B8 (ta.* Scoping), I moved the ta.barssince function call to the global scope, stored the result",
+          "author": "smart-autofix",
           "isActive": true
         }
       ],
-      "currentVersion": "2.5.3"
+      "currentVersion": "2.5.4"
     },
     {
       "id": "example-ema-crossover-strategy",
@@ -341,6 +349,140 @@
           "isActive": true
         }
       ]
+    },
+    {
+      "name": "Range Scalper Test",
+      "type": "indicator",
+      "version": "1.0.0",
+      "status": "active",
+      "filePath": "scripts/indicators/range-scalper-test.pine",
+      "description": "",
+      "author": "",
+      "pineVersion": 5,
+      "dateModified": "2026-01-08T19:07:57.636725Z",
+      "dateCreated": "2026-01-08T19:05:39.023165Z",
+      "id": "6963e274"
+    },
+    {
+      "name": "Range Scalper",
+      "type": "indicator",
+      "version": "1.0.0",
+      "status": "active",
+      "filePath": "scripts\\indicators\\range-scalper\\v1.0.0\\v1.0.1\\v1.0.2\\v1.0.3.pine",
+      "description": "",
+      "author": "",
+      "pineVersion": 5,
+      "id": "fe6a0e60",
+      "dateCreated": "2026-01-08T19:08:25.381497Z",
+      "dateModified": "2026-01-08T19:10:26.254929Z",
+      "currentVersion": "1.0.3",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "filePath": "scripts\\indicators\\range-scalper\\v1.0.0.pine",
+          "dateCreated": "2026-01-08T19:08:25.381497Z",
+          "changelog": "Initial version",
+          "author": "",
+          "isActive": false
+        },
+        {
+          "version": "1.0.1",
+          "filePath": "scripts\\indicators\\range-scalper\\v1.0.0\\v1.0.1.pine",
+          "dateCreated": "2026-01-08T19:08:37.669426Z",
+          "changelog": "Manual edit via web interface",
+          "author": "user",
+          "isActive": false
+        },
+        {
+          "version": "1.0.2",
+          "filePath": "scripts\\indicators\\range-scalper\\v1.0.0\\v1.0.1\\v1.0.2.pine",
+          "dateCreated": "2026-01-08T19:09:26.144335Z",
+          "changelog": "Auto-Fix All: Quick Fix: 27 issue(s), Smart Fix: 2 critical/high issue(s)",
+          "author": "auto-fix-all",
+          "isActive": false
+        },
+        {
+          "version": "1.0.3",
+          "filePath": "scripts\\indicators\\range-scalper\\v1.0.0\\v1.0.1\\v1.0.2\\v1.0.3.pine",
+          "dateCreated": "2026-01-08T19:10:26.254929Z",
+          "changelog": "Smart Auto-fix (LLM): Fixed 0 critical and 1 high-priority issues. The code was already following the Pine Script v5 standards and had no issues related to ta.* Functi",
+          "author": "smart-autofix",
+          "isActive": true
+        }
+      ]
+    },
+    {
+      "name": "Continuation Strat",
+      "type": "indicator",
+      "version": "1.0.0",
+      "status": "active",
+      "filePath": "scripts\\indicators\\continuation-strat\\v1.0.0\\v1.0.1.pine",
+      "description": "",
+      "author": "",
+      "pineVersion": 5,
+      "id": "af940398",
+      "dateCreated": "2026-01-08T19:11:38.609666Z",
+      "dateModified": "2026-01-08T19:11:53.330994Z",
+      "currentVersion": "1.0.1",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "filePath": "scripts\\indicators\\continuation-strat\\v1.0.0.pine",
+          "dateCreated": "2026-01-08T19:11:38.609666Z",
+          "changelog": "Initial version",
+          "author": "",
+          "isActive": false
+        },
+        {
+          "version": "1.0.1",
+          "filePath": "scripts\\indicators\\continuation-strat\\v1.0.0\\v1.0.1.pine",
+          "dateCreated": "2026-01-08T19:11:53.330994Z",
+          "changelog": "Initial edit",
+          "author": "user",
+          "isActive": true
+        }
+      ]
+    },
+    {
+      "name": "test 2",
+      "type": "indicator",
+      "version": "1.0.1",
+      "status": "active",
+      "description": "",
+      "author": "",
+      "pineVersion": 5,
+      "dateModified": "2026-01-08T19:22:32.462938Z",
+      "dateCreated": "2026-01-08T19:16:40.423500Z",
+      "id": "d2e63ce7",
+      "filePath": "scripts\\indicators\\test\\v1.0.0\\v1.0.1\\v1.0.2.pine",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "filePath": "scripts\\indicators\\test\\v1.0.0.pine",
+          "dateCreated": "2026-01-08T19:16:40.423500Z",
+          "changelog": "Initial version",
+          "author": "user",
+          "isActive": false,
+          "dateModified": "2026-01-08T19:16:49.570700Z"
+        },
+        {
+          "version": "1.0.1",
+          "filePath": "scripts\\indicators\\test\\v1.0.0\\v1.0.1.pine",
+          "dateCreated": "2026-01-08T19:17:01.246113Z",
+          "changelog": "Auto-fix: 4 issue(s) fixed - Line 4: Converted 'initial_capital' to 'initialCapital', Line 5: Converted 'default_qty_type' to 'defaultQtyType', Line 6: Converted 'default_qty_value' to 'defaultQtyValue' (+1 more)",
+          "author": "autofix",
+          "isActive": false
+        },
+        {
+          "version": "1.0.2",
+          "filePath": "scripts\\indicators\\test\\v1.0.0\\v1.0.1\\v1.0.2.pine",
+          "dateCreated": "2026-01-08T19:22:32.462938Z",
+          "changelog": "Auto-Fix All: Smart Fix: 2 critical/high issue(s)",
+          "author": "auto-fix-all",
+          "isActive": true
+        }
+      ],
+      "currentVersion": "1.0.2"
     }
   ]
 }

@@ -727,11 +727,24 @@ async function saveEditedCode() {
         return;
     }
     
-    // Prompt for changelog
-    const changelog = prompt('Enter a brief description of your changes:', 'Manual edit via web interface');
+    // Check if this is the initial template code being replaced
+    const isInitialTemplate = originalCode.includes('This Pine Script was created via Pine Script Library');
     
-    if (changelog === null) {
-        return; // User cancelled
+    let changelog = 'Initial version';
+    let isInitialSave = false;
+    
+    // Only prompt for changelog if this is NOT the initial template
+    if (!isInitialTemplate) {
+        const userChangelog = prompt('Enter a brief description of your changes:', 'Manual edit via web interface');
+        
+        if (userChangelog === null) {
+            return; // User cancelled
+        }
+        changelog = userChangelog || 'Manual edit';
+    } else {
+        // This is the initial save - don't prompt for changelog
+        isInitialSave = true;
+        changelog = 'Initial version';
     }
     
     try {
@@ -740,7 +753,7 @@ async function saveEditedCode() {
         const originalText = saveButton.textContent;
         saveButton.textContent = '⏳ Saving...';
         
-        // Call API to save edited code and create new version
+        // Call API to save edited code
         const response = await fetch(`${API_BASE}/scripts/${currentScriptId}/save-code`, {
             method: 'POST',
             headers: {
@@ -748,8 +761,9 @@ async function saveEditedCode() {
             },
             body: JSON.stringify({
                 code: editedCode,
-                changelog: changelog || 'Manual edit',
-                author: 'user'
+                changelog: changelog,
+                author: 'user',
+                isInitialSave: isInitialSave
             })
         });
         
@@ -763,8 +777,12 @@ async function saveEditedCode() {
         // Reset button
         saveButton.textContent = originalText;
         
-        // Show success message
-        showNotification(`✅ Code saved! New version: ${result.newVersion}`, 'success');
+        // Show appropriate success message
+        if (result.isInitialVersion) {
+            showNotification(`✅ Initial script saved! Version: ${result.newVersion}`, 'success');
+        } else {
+            showNotification(`✅ Code saved! New version: ${result.newVersion}`, 'success');
+        }
         
         // Exit edit mode without prompting (we just saved)
         isEditMode = false;
@@ -779,7 +797,7 @@ async function saveEditedCode() {
         // Reload scripts list
         await loadScripts();
         
-        // Refresh code view to show new version
+        // Refresh code view to show version
         await viewCode(currentScriptId, result.newVersion);
         
     } catch (error) {
@@ -877,11 +895,15 @@ async function handleFormSubmit(event) {
         type: document.getElementById('edit_type').value,
         version: document.getElementById('edit_version').value,
         status: document.getElementById('edit_status').value,
-        filePath: document.getElementById('edit_filePath').value,
         description: document.getElementById('edit_description').value,
         author: document.getElementById('edit_author').value,
         pineVersion: 5
     };
+    
+    // Only include filePath when creating (not editing - backend preserves existing path)
+    if (!editingScriptId) {
+        formData.filePath = document.getElementById('edit_filePath').value;
+    }
     
     // Parse tags
     const tagsValue = document.getElementById('edit_tags').value.trim();
@@ -923,11 +945,26 @@ async function handleFormSubmit(event) {
     
     try {
         if (editingScriptId) {
+            // Updating existing script
             await updateScript(editingScriptId, formData);
+            closeEditModal();
         } else {
-            await createScript(formData);
+            // Creating new script - open code editor automatically after save
+            const newScript = await createScript(formData);
+            closeEditModal();
+            
+            // Automatically open the code editor in edit mode for the newly created script
+            if (newScript && newScript.id) {
+                // Small delay to ensure modal transitions smoothly
+                setTimeout(async () => {
+                    await viewCode(newScript.id);
+                    // Enter edit mode automatically so user can paste/write code
+                    setTimeout(() => {
+                        enterEditMode();
+                    }, 100);
+                }, 300);
+            }
         }
-        closeEditModal();
     } catch (error) {
         // Error already handled in create/update functions
     }
@@ -1116,6 +1153,10 @@ function displayReviewResults(reviewData) {
             <span style="color: var(--text-secondary);">(Version: ${escapeHtml(reviewedVersion)})</span>
         </div>
         
+        <div id="reviewStatusMessage" style="margin-bottom: 15px; padding: 10px; background: var(--dark-bg); border-radius: 6px; border-left: 3px solid var(--secondary-color); display: none; min-height: 40px; align-items: center;">
+            <span id="reviewStatusText" style="color: var(--text-secondary); font-style: italic;"></span>
+        </div>
+        
         <div class="review-summary">
             <div class="review-summary-item critical">
                 <h3>${criticalCount}</h3>
@@ -1230,6 +1271,7 @@ function displayReviewResults(reviewData) {
     // Show auto-fix button if there are fixable issues
     const autoFixBtn = document.getElementById('autoFixBtn');
     const smartAutoFixBtn = document.getElementById('smartAutoFixBtn');
+    const autoFixAllBtn = document.getElementById('autoFixAllBtn');
     const hasFixableIssues = criticalCount > 0 || highCount > 0 || warningCount > 0;
     const hasCriticalOrHighIssues = criticalCount > 0 || highCount > 0;
     
@@ -1240,6 +1282,11 @@ function displayReviewResults(reviewData) {
     // Show smart auto-fix button only if there are CRITICAL or HIGH issues
     if (smartAutoFixBtn && hasCriticalOrHighIssues) {
         smartAutoFixBtn.style.display = 'block';
+    }
+    
+    // Show Auto-Fix All button if there are any fixable issues (best value for users!)
+    if (autoFixAllBtn && hasFixableIssues) {
+        autoFixAllBtn.style.display = 'block';
     }
     
     // Show modal
@@ -1258,11 +1305,15 @@ function closeReviewModal() {
     // Hide auto-fix buttons
     const autoFixBtn = document.getElementById('autoFixBtn');
     const smartAutoFixBtn = document.getElementById('smartAutoFixBtn');
+    const autoFixAllBtn = document.getElementById('autoFixAllBtn');
     if (autoFixBtn) {
         autoFixBtn.style.display = 'none';
     }
     if (smartAutoFixBtn) {
         smartAutoFixBtn.style.display = 'none';
+    }
+    if (autoFixAllBtn) {
+        autoFixAllBtn.style.display = 'none';
     }
 }
 
@@ -1428,10 +1479,13 @@ async function autoFixCode() {
     }
     
     try {
-        // Update button state
-        const autoFixButton = document.getElementById('autoFixButtonText');
-        const originalText = autoFixButton.textContent;
-        autoFixButton.textContent = '⏳ Fixing...';
+        // Show status message
+        const statusMessage = document.getElementById('reviewStatusMessage');
+        const statusText = document.getElementById('reviewStatusText');
+        if (statusMessage && statusText) {
+            statusMessage.style.display = 'flex';
+            statusText.textContent = '⏳ Applying Quick Fix...';
+        }
         
         // Call auto-fix API
         const response = await fetch(`${API_BASE}/scripts/${currentScriptId}/autofix`, {
@@ -1451,8 +1505,10 @@ async function autoFixCode() {
         
         const result = await response.json();
         
-        // Reset button
-        autoFixButton.textContent = originalText;
+        // Hide status message
+        if (statusMessage) {
+            statusMessage.style.display = 'none';
+        }
         
         // Show success message with details
         const fixedCount = result.fixedIssues || 0;
@@ -1474,9 +1530,11 @@ async function autoFixCode() {
         console.error('Error auto-fixing code:', error);
         showNotification(`Error: ${error.message}`, 'error');
         
-        // Reset button
-        const autoFixButton = document.getElementById('autoFixButtonText');
-        autoFixButton.textContent = '🔧 Quick Fix';
+        // Hide status message
+        const statusMessage = document.getElementById('reviewStatusMessage');
+        if (statusMessage) {
+            statusMessage.style.display = 'none';
+        }
     }
 }
 
@@ -1488,8 +1546,16 @@ async function smartAutoFixCode() {
     if (!currentScriptId) return;
     
     try {
-        const smartAutoFixButton = document.getElementById('smartAutoFixButtonText');
-        const originalText = smartAutoFixButton.textContent;
+        // Show status message with progress animation
+        const statusMessage = document.getElementById('reviewStatusMessage');
+        const statusText = document.getElementById('reviewStatusText');
+        
+        if (!statusMessage || !statusText) {
+            showNotification('Status display not available', 'error');
+            return;
+        }
+        
+        statusMessage.style.display = 'flex';
         
         // Create progress animation
         let progressStep = 0;
@@ -1503,7 +1569,7 @@ async function smartAutoFixCode() {
         ];
         
         const progressInterval = setInterval(() => {
-            smartAutoFixButton.textContent = progressSteps[progressStep % progressSteps.length];
+            statusText.textContent = progressSteps[progressStep % progressSteps.length];
             progressStep++;
         }, 2000);
         
@@ -1554,9 +1620,9 @@ async function smartAutoFixCode() {
         
         const result = await response.json();
         
-        // Clear progress animation and reset button
+        // Clear progress animation and hide status message
         clearInterval(progressInterval);
-        smartAutoFixButton.textContent = originalText;
+        statusMessage.style.display = 'none';
         
         if (result.skipped) {
             showNotification('✅ No critical/high issues found to fix', 'success');
@@ -1604,9 +1670,147 @@ async function smartAutoFixCode() {
             clearInterval(progressInterval);
         }
         
-        // Reset button
-        const smartAutoFixButton = document.getElementById('smartAutoFixButtonText');
-        smartAutoFixButton.textContent = '✨ Smart Fix (LLM)';
+        // Hide status message
+        const statusMessage = document.getElementById('reviewStatusMessage');
+        if (statusMessage) {
+            statusMessage.style.display = 'none';
+        }
+    }
+}
+
+// ============================================================================
+// AUTO-FIX ALL (HYBRID: QUICK FIX + SMART FIX)
+// ============================================================================
+
+async function autoFixAll() {
+    if (!currentScriptId) return;
+    
+    try {
+        // Show status message with progress animation
+        const statusMessage = document.getElementById('reviewStatusMessage');
+        const statusText = document.getElementById('reviewStatusText');
+        
+        if (!statusMessage || !statusText) {
+            showNotification('Status display not available', 'error');
+            return;
+        }
+        
+        statusMessage.style.display = 'flex';
+        
+        // Create enhanced progress animation
+        let progressStep = 0;
+        const progressSteps = [
+            '⚡ Running Quick Fix...',
+            '🔍 Re-analyzing code...',
+            '🤖 Sending to AI...',
+            '✨ AI is thinking...',
+            '🔧 Applying smart fixes...',
+            '📝 Finalizing changes...'
+        ];
+        
+        const progressInterval = setInterval(() => {
+            statusText.textContent = progressSteps[progressStep % progressSteps.length];
+            progressStep++;
+        }, 2500);
+        
+        // Clear any old cached API key
+        localStorage.removeItem('llmApiKey');
+        
+        // Get settings
+        const useServerKey = localStorage.getItem('useServerKey') === 'true';
+        const apiKey = localStorage.getItem('llmApiKey');
+        const provider = localStorage.getItem('llmProvider') || 'openai';
+        
+        const requestBody = {
+            provider: provider
+        };
+        
+        // Only send client-side API key if explicitly provided
+        if (!useServerKey && apiKey) {
+            requestBody.apiKey = apiKey;
+        }
+        
+        // Add version if reviewing a specific version
+        if (currentSelectedVersion) {
+            requestBody.version = currentSelectedVersion;
+        }
+        
+        const response = await fetch(`${API_BASE}/scripts/${currentScriptId}/auto-fix-all`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+            clearInterval(progressInterval);
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to apply auto-fix all');
+        }
+        
+        const result = await response.json();
+        
+        // Clear progress animation and hide status message
+        clearInterval(progressInterval);
+        statusMessage.style.display = 'none';
+        
+        // Build detailed success message
+        const quickFixes = result.quickFixesApplied || 0;
+        const smartFixes = result.criticalHighIssuesAddressed || 0;
+        const newVersion = result.newVersion || 'unknown';
+        
+        let message = `⚡ Auto-Fix All Complete!\n\n`;
+        message += `✅ Quick Fix: ${quickFixes} formatting issue(s)\n`;
+        
+        if (result.smartFixApplied) {
+            message += `✅ Smart Fix: ${smartFixes} critical/high issue(s)\n`;
+        } else {
+            message += `✅ Smart Fix: Not needed (no critical issues remaining)\n`;
+        }
+        
+        message += `\n🎉 New version: ${newVersion}`;
+        
+        showNotification(message, 'success');
+        
+        // Show detailed explanation if available
+        if (result.smartFixApplied && result.smartExplanation) {
+            const showDetails = confirm(
+                `Auto-Fix All completed successfully!\n\n` +
+                `Quick fixes: ${quickFixes} issues\n` +
+                `Smart fixes: ${smartFixes} issues\n\n` +
+                `Would you like to see what the AI changed?`
+            );
+            if (showDetails) {
+                alert(`AI Changes:\n\n${result.smartExplanation}`);
+            }
+        }
+        
+        // Close review modal
+        closeReviewModal();
+        
+        // Reload scripts
+        await loadScripts();
+        
+        // Offer to view fixed code
+        if (confirm('Would you like to view the fixed code?')) {
+            await viewCode(currentScriptId);
+        }
+        
+    } catch (error) {
+        console.error('Error applying auto-fix all:', error);
+        showNotification(`❌ Error: ${error.message}`, 'error');
+        
+        // Clear progress animation if still running
+        if (typeof progressInterval !== 'undefined') {
+            clearInterval(progressInterval);
+        }
+        
+        // Hide status message
+        const statusMessage = document.getElementById('reviewStatusMessage');
+        if (statusMessage) {
+            statusMessage.style.display = 'none';
+        }
     }
 }
 

@@ -1,0 +1,56 @@
+//@version=6
+strategy("Range Scalper v6 - Pro Fixed", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10)
+
+// --- Inputs ---
+int lookbackPeriod = input.int(20, "Range Lookback Period", minval=5)
+string tpLocation  = input.string("Mid-Point", "Take Profit Target", options=["Mid-Point", "Opposite Side"])
+float stopLossPerc = input.float(1.0, "Hard Stop Loss (%)")
+string sessionTime = input.session("0930-1530", "Trading Session")
+float minRangePerc = input.float(0.15, "Min Range Width (%)", step=0.01)
+
+// --- Calculations ---
+float rHigh = ta.highest(high[1], lookbackPeriod)
+float rLow  = ta.lowest(low[1], lookbackPeriod)
+float rMid  = (rHigh + rLow) / 2
+
+// Calculate range width
+float rangeWidth = ((rHigh - rLow) / rLow) * 100
+bool canTrade    = rangeWidth >= minRangePerc
+
+// --- Visuals ---
+plot(rHigh, "Resistance", color.red, 2)
+plot(rLow, "Support", color.green, 2)
+plot(rMid, "Mean", color.gray, 1, plot.style_linebr)
+
+// Highlight background if range is too narrow
+bgcolor(not canTrade ? color.new(color.gray, 90) : na)
+
+// --- Table Dashboard (Top Right) ---
+var table statusTable = table.new(position.top_right, 2, 2, frame_color=color.gray, frame_width=1)
+if barstate.islast
+    table.cell(statusTable, 0, 0, "Range Width", bgcolor=color.gray, text_color=color.white)
+    table.cell(statusTable, 1, 0, str.tostring(rangeWidth, "#.##") + "%", bgcolor=canTrade ? color.green : color.red, text_color=color.white)
+    table.cell(statusTable, 0, 1, "Trade Status", bgcolor=color.gray, text_color=color.white)
+    table.cell(statusTable, 1, 1, canTrade ? "READY" : "WAIT", bgcolor=canTrade ? color.green : color.red, text_color=color.white)
+
+// --- Session Management ---
+bool isInSession = not na(time(timeframe.period, sessionTime))
+bool isEndOfDay  = not isInSession and isInSession[1]
+
+if isEndOfDay
+    strategy.close_all("EOD Flatten")
+    strategy.cancel_all()
+
+// --- Trading Logic ---
+if isInSession and strategy.position_size == 0 and canTrade
+    strategy.entry("Short", strategy.short, limit=rHigh, comment="Sell @ High")
+    strategy.entry("Long", strategy.long, limit=rLow, comment="Buy @ Low")
+
+// --- Exit Logic ---
+if strategy.position_size > 0
+    float targetPrice = tpLocation == "Mid-Point" ? rMid : rHigh
+    strategy.exit("Exit Long", "Long", limit=targetPrice, stop=strategy.position_avg_price * (1 - stopLossPerc / 100))
+
+if strategy.position_size < 0
+    float targetPrice = tpLocation == "Mid-Point" ? rMid : rLow
+    strategy.exit("Exit Short", "Short", limit=targetPrice, stop=strategy.position_avg_price * (1 + stopLossPerc / 100))

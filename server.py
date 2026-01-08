@@ -389,15 +389,25 @@ def update_script(script_id):
         if script_index is None:
             return jsonify({"error": "Script not found"}), 404
         
+        existing_script = data['scripts'][script_index]
+        
         # Update timestamp
         updated_data['dateModified'] = datetime.utcnow().isoformat() + 'Z'
         
         # Preserve dateCreated if not provided
         if 'dateCreated' not in updated_data:
-            updated_data['dateCreated'] = data['scripts'][script_index].get('dateCreated', updated_data['dateModified'])
+            updated_data['dateCreated'] = existing_script.get('dateCreated', updated_data['dateModified'])
         
         # Ensure ID remains the same
         updated_data['id'] = script_id
+        
+        # CRITICAL: Preserve file path and version structure (files on disk don't move when name changes)
+        if 'filePath' in existing_script:
+            updated_data['filePath'] = existing_script['filePath']
+        if 'versions' in existing_script:
+            updated_data['versions'] = existing_script['versions']
+        if 'currentVersion' in existing_script:
+            updated_data['currentVersion'] = existing_script['currentVersion']
         
         # Update script
         data['scripts'][script_index] = updated_data
@@ -894,12 +904,16 @@ def perform_code_review(code, script_name):
                         })
     
     # D1: Check for var without reset logic
-    var_pattern = re.compile(r'var\s+\w+\s+(\w+)\s*=')
+    # Exclude UI objects (table, label, line, box) as they persist and don't need resets
+    var_pattern = re.compile(r'var\s+(\w+)\s+(\w+)\s*=')
+    ui_types = {'table', 'label', 'line', 'box', 'linefill', 'polyline'}
     vars_found = []
     for i, line in enumerate(lines, 1):
         matches = var_pattern.findall(line)
-        for var_name in matches:
-            vars_found.append((var_name, i))
+        for var_type, var_name in matches:
+            # Skip UI/drawing objects - they don't need session resets
+            if var_type.lower() not in ui_types:
+                vars_found.append((var_name, i))
     
     for var_name, line_num in vars_found:
         # Check if there's a reset for this var
@@ -981,6 +995,7 @@ def save_edited_code(script_id):
         edited_code = request_data.get('code')
         changelog = request_data.get('changelog', 'Manual edit via web interface')
         author = request_data.get('author', 'user')
+        is_initial_save = request_data.get('isInitialSave', False)
         
         if not edited_code:
             return jsonify({"error": "No code provided"}), 400
@@ -996,8 +1011,65 @@ def save_edited_code(script_id):
         if 'versions' not in script or len(script.get('versions', [])) == 0:
             migrate_script_to_versioning(script)
         
-        # Get current version and increment
+        # Get current version
         current_version = script.get('currentVersion', '1.0.0')
+        
+        # Check if current code is still the initial template
+        current_code, _ = get_version_code(script, current_version)
+        is_initial_template = False
+        if current_code:
+            # Check if it's the initial template (contains the creation marker)
+            is_initial_template = "This Pine Script was created via Pine Script Library" in current_code
+        
+        # If this is the initial template or explicitly marked as initial save, update v1.0.0 in place
+        if is_initial_template or (is_initial_save and current_version == '1.0.0'):
+            # Update the existing v1.0.0 file instead of creating a new version
+            version_to_update = current_version
+            
+            # Update version in code if present (keep it as current version)
+            edited_code = update_version_in_code(edited_code, version_to_update)
+            
+            # Get the current version file path
+            version_file = None
+            for v in script.get('versions', []):
+                if v['version'] == version_to_update and v.get('isActive'):
+                    version_file = Path(v['filePath'])
+                    break
+            
+            if not version_file:
+                return jsonify({"error": "Could not find version file"}), 404
+            
+            # Write the code to the existing file
+            with open(version_file, 'w', encoding='utf-8') as f:
+                f.write(edited_code)
+            
+            # Update the version entry with new metadata
+            for v in script.get('versions', []):
+                if v['version'] == version_to_update:
+                    v['dateModified'] = datetime.utcnow().isoformat() + 'Z'
+                    v['changelog'] = 'Initial version'
+                    v['author'] = author
+                    break
+            
+            # Update script metadata
+            script['dateModified'] = datetime.utcnow().isoformat() + 'Z'
+            
+            # Save scripts metadata
+            script_index = next((i for i, s in enumerate(data['scripts']) if s['id'] == script_id), None)
+            if script_index is not None:
+                data['scripts'][script_index] = script
+                save_scripts(data)
+            
+            return jsonify({
+                'success': True,
+                'newVersion': version_to_update,
+                'previousVersion': version_to_update,
+                'changelog': 'Initial version',
+                'isInitialVersion': True,
+                'message': f'Successfully saved initial version {version_to_update}'
+            })
+        
+        # Otherwise, create a new version (normal edit flow)
         new_version = increment_version(current_version)
         
         # Update version in code if present
@@ -1027,6 +1099,7 @@ def save_edited_code(script_id):
             'previousVersion': current_version,
             'changelog': changelog,
             'versionInfo': version_info,
+            'isInitialVersion': False,
             'message': f'Successfully saved code as version {new_version}'
         })
         
@@ -1113,6 +1186,112 @@ def debug_api_key_status():
         'provider': DEFAULT_LLM_PROVIDER,
         'model': OPENAI_MODEL
     })
+
+
+@app.route('/api/scripts/<script_id>/auto-fix-all', methods=['POST'])
+def auto_fix_all_script(script_id):
+    """Apply hybrid auto-fix: Quick Fix first, then Smart Fix on remaining issues"""
+    try:
+        request_data = request.json or {}
+        api_key = request_data.get('apiKey')
+        provider = request_data.get('provider', 'openai')
+        version = request_data.get('version')
+        
+        # Load scripts metadata
+        data = load_scripts()
+        script = next((s for s in data['scripts'] if s['id'] == script_id), None)
+        
+        if not script:
+            return jsonify({"error": "Script not found"}), 404
+        
+        # Auto-migrate to versioning if needed
+        if 'versions' not in script or len(script.get('versions', [])) == 0:
+            migrate_script_to_versioning(script)
+        
+        # Get current version info
+        current_version = version or script.get('currentVersion', '1.0.0')
+        
+        # Get code for the version
+        code, error = get_version_code(script, current_version)
+        
+        if error:
+            return jsonify({"error": error}), 404
+        
+        # STEP 1: Apply Quick Fix (regex-based)
+        quick_fixed_code, quick_fixes = apply_auto_fixes(code)
+        
+        # STEP 2: Run code review on quick-fixed code
+        review_results = perform_code_review(quick_fixed_code, script['name'])
+        critical_high_count = review_results['summary']['critical'] + review_results['summary']['high']
+        
+        # STEP 3: Apply Smart Fix if there are still critical/high issues
+        smart_fixes_applied = False
+        smart_explanation = ""
+        final_code = quick_fixed_code
+        
+        if critical_high_count > 0:
+            fixed_code, explanation, success, error_msg = apply_smart_fixes_with_llm(
+                quick_fixed_code,
+                script['name'],
+                review_results['issues'],
+                api_key=api_key,
+                provider=provider
+            )
+            
+            if success:
+                final_code = fixed_code
+                smart_fixes_applied = True
+                smart_explanation = explanation
+        
+        # Increment version
+        new_version = increment_version(current_version)
+        
+        # Update version in code
+        final_code = update_version_in_code(final_code, new_version)
+        
+        # Create changelog
+        changelog_parts = []
+        if len(quick_fixes) > 0:
+            changelog_parts.append(f"Quick Fix: {len(quick_fixes)} issue(s)")
+        if smart_fixes_applied:
+            changelog_parts.append(f"Smart Fix: {critical_high_count} critical/high issue(s)")
+        
+        changelog = f"Auto-Fix All: {', '.join(changelog_parts)}"
+        
+        # Create new version
+        version_success, version_info, version_error = create_new_version(
+            script,
+            new_version,
+            final_code,
+            changelog,
+            author='auto-fix-all'
+        )
+        
+        if not version_success:
+            return jsonify({"error": version_error or "Failed to create new version"}), 500
+        
+        # Update script in data
+        script_index = next((i for i, s in enumerate(data['scripts']) if s['id'] == script_id), None)
+        if script_index is not None:
+            data['scripts'][script_index] = script
+            save_scripts(data)
+        
+        return jsonify({
+            'success': True,
+            'newVersion': new_version,
+            'previousVersion': current_version,
+            'changelog': changelog,
+            'quickFixesApplied': len(quick_fixes),
+            'smartFixApplied': smart_fixes_applied,
+            'criticalHighIssuesAddressed': critical_high_count if smart_fixes_applied else 0,
+            'quickFixes': quick_fixes[:5],  # Show first 5
+            'smartExplanation': smart_explanation,
+            'versionInfo': version_info,
+            'message': f'Successfully applied hybrid fixes as version {new_version}'
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/scripts/<script_id>/smart-autofix', methods=['POST'])
@@ -1417,11 +1596,13 @@ COMMON FIXES:
          if condition
              if barsSinceX < 10
 
-**D1 - Variable Reset**: Add reset logic for var declarations at session boundaries
-   BAD:  var float myVar = na
+**D1 - Variable Reset**: Add reset logic for var STATE variables (NOT UI objects!)
+   UI objects (table, label, line, box) do NOT need resets - skip these!
+   BAD:  var float myVar = na  // State variable without reset
    GOOD: var float myVar = na
          if sessionBoundary
-             myVar := na"""
+             myVar := na
+   SKIP: var table myTable = table.new(...)  // UI object - no reset needed"""
 
         user_prompt = f"""Fix the following Pine Script code based on these CRITICAL/HIGH issues:
 
@@ -1444,8 +1625,9 @@ For B8 (ta.* Scoping):
 4. Use that variable in the if block logic
 
 For D1 (Variable Reset):
-1. Find ALL var declarations
-2. Add reset logic at appropriate session boundaries (e.g., isFirstBar, not isRth, etc.)
+1. Find ALL var declarations (EXCEPT UI objects: table, label, line, box)
+2. UI objects (table, label, line, box) do NOT need reset logic - they persist by design
+3. Add reset logic for STATE variables at appropriate session boundaries (e.g., isFirstBar, not isRth, etc.)
 
 **OUTPUT FORMAT:**
 Return the COMPLETE fixed Pine Script code with NO markdown, NO explanations, JUST the code.
