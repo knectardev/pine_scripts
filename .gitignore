@@ -72,6 +72,9 @@ build/
 .env.local
 .env.*.local
 
+# Keep env.example as template, but ensure it never has real keys
+# Users should copy env.example to .env and add their keys there
+
 # Test outputs
 test-results/
 coverage/

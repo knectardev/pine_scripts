@@ -1,0 +1,250 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Your Name
+
+//@version=5
+strategy(
+  "ES Professional Fade v2.5 (Execution Gap Modeled)",
+  overlay=true,
+  initial_capital=50000,
+  default_qty_value=1,
+  commission_type=strategy.commission.cash_per_contract,
+  commission_value=2.01)
+
+// ============================================================================
+// DESCRIPTION
+// ============================================================================
+// Professional ES (E-mini S&P 500) fade strategy that trades opening gaps
+// with comprehensive filters including ATR volatility, NYSE TICK breadth,
+// and execution penalty modeling. Designed for 5-minute charts during RTH.
+//
+// STRATEGY LOGIC:
+// 1. Identifies significant overnight gaps (gap up or gap down)
+// 2. Waits for opening range to form (5, 15, or 30 minutes)
+// 3. Enters fade trades when price fails at overnight high/low
+// 4. Uses NYSE TICK as breadth filter to avoid strong trends
+// 5. Applies execution penalty near market open to model slippage
+// 6. Targets previous day's RTH close with protective stops
+//
+// AUTHOR: Your Name
+// VERSION: 2.5.0
+// DATE: 2026-01-08
+//
+// PARAMETERS:
+// - gapMinPctInput: Minimum gap size as percentage (default: 0.20%)
+// - openingRangeLengthInput: Opening range period in minutes (default: 15)
+// - tickFilterInput: NYSE TICK extreme threshold (default: 700)
+// - tickLookbackInput: Bars to check for TICK extreme (default: 5)
+// - tickVetoCountInput: Number of extreme readings to veto trade (default: 3)
+// - maxHoldBarsInput: Maximum bars to hold position (default: 24)
+// - maxTradesDayInput: Maximum trades allowed per day (default: 2)
+// - useAtrFilterInput: Enable ATR-based gap filter (default: true)
+// - atrLengthInput: ATR calculation period (default: 14)
+// - gapAtrMultInput: Minimum gap size in ATRs (default: 1.0)
+// - minGapPointsInput: Minimum gap in ES points (default: 1.0)
+// - useExecPenaltyInput: Apply execution penalty model (default: true)
+// - execWindowMinsInput: Penalty window duration (default: 30 mins)
+// - execPenaltyPointsInput: Execution penalty in ES points (default: 0.50)
+//
+// USAGE:
+// - Designed for ES futures on 5-minute timeframe
+// - Trades only during Regular Trading Hours (RTH: 9:30 AM - 4:00 PM ET)
+// - Requires access to NYSE TICK data feed
+// - Best results with realistic commission (~$2.01 per contract per side)
+// - Execution penalty models realistic fill difficulty near market open
+//
+// RISK WARNINGS:
+// - Futures trading involves substantial risk of loss
+// - Past performance does not guarantee future results
+// - Always paper trade thoroughly before live implementation
+// - Market conditions change; continuous monitoring required
+// ============================================================================
+
+// ————— Constants
+const float DEFAULT_COMMISSION      = 2.01
+const float MILLISECONDS_PER_MINUTE = 60000.0
+
+const int   DEFAULT_GAP_PCT         = 20  // Basis points (0.20%)
+const int   BASIS_POINTS_DIVISOR    = 10000
+
+const int   OR_LENGTH_5MIN          = 5
+const int   OR_LENGTH_15MIN         = 15
+const int   OR_LENGTH_30MIN         = 30
+
+const int   DEFAULT_TICK_FILTER     = 700
+const int   DEFAULT_TICK_LOOKBACK   = 5
+const int   DEFAULT_TICK_VETO_COUNT = 3
+
+const int   DEFAULT_MAX_HOLD_BARS   = 24
+const int   DEFAULT_MAX_TRADES_DAY  = 2
+
+const int   DEFAULT_ATR_LENGTH      = 14
+const float DEFAULT_GAP_ATR_MULT    = 1.0
+const float DEFAULT_MIN_GAP_POINTS  = 1.0
+
+const int   DEFAULT_EXEC_WINDOW     = 30
+const float DEFAULT_EXEC_PENALTY    = 0.50
+
+const string RTH_SESSION            = "0930-1600:1234567"
+const string TIMEZONE               = "America/New_York"
+
+const string ENTRY_SHORT_ID         = "FadeShort"
+const string ENTRY_LONG_ID          = "FadeLong"
+const string EXIT_ID                = "TP/SL"
+const string EXIT_TIMEOUT_COMMENT   = "Time Out"
+const string EXIT_EOD_COMMENT       = "EOD"
+
+// ————— Inputs
+// Backtest Window
+int startDateInput = input.time(timestamp("2025-10-01 00:00"), "Backtest Start Date")
+int endDateInput   = input.time(timestamp("2026-01-08 23:59"), "Backtest End Date")
+
+// Strategy Parameters
+float gapMinPctInput = input.float(0.20, "Min Gap %", step=0.05)
+int   openingRangeLengthInput = input.int(OR_LENGTH_15MIN, "Opening Range (Min)", 
+  options=[OR_LENGTH_5MIN, OR_LENGTH_15MIN, OR_LENGTH_30MIN])
+
+// Breadth Filter (NYSE TICK)
+int tickFilterInput     = input.int(DEFAULT_TICK_FILTER, "Breadth Filter ($TICK extreme)")
+int tickLookbackInput   = input.int(DEFAULT_TICK_LOOKBACK, "TICK veto lookback (bars)", minval=3)
+int tickVetoCountInput  = input.int(DEFAULT_TICK_VETO_COUNT, "TICK veto count", minval=2)
+
+// Position Management
+int maxHoldBarsInput    = input.int(DEFAULT_MAX_HOLD_BARS, "Max Hold (Bars, 5m)")
+int maxTradesDayInput   = input.int(DEFAULT_MAX_TRADES_DAY, "Max Trades Per Day")
+
+// Volatility Filter (ATR)
+bool  useAtrFilterInput    = input.bool(true, "Use ATR gap filter")
+int   atrLengthInput       = input.int(DEFAULT_ATR_LENGTH, "ATR Length (chart TF)", minval=5)
+float gapAtrMultInput      = input.float(DEFAULT_GAP_ATR_MULT, "Min Gap in ATRs", step=0.25)
+float minGapPointsInput    = input.float(DEFAULT_MIN_GAP_POINTS, "Min Gap Points", step=0.25)
+
+// Execution Gap / Slippage Model
+bool  useExecPenaltyInput  = input.bool(true, "Apply execution penalty near open")
+int   execWindowMinsInput  = input.int(DEFAULT_EXEC_WINDOW, "Penalty window after open (mins)", minval=5)
+float execPenaltyPointsInput = input.float(DEFAULT_EXEC_PENALTY, "Execution penalty (ES points)", step=0.25)
+
+// ————— Calculations
+// Backtest Date Range
+bool inDateRange = time >= startDateInput and time <= endDateInput
+
+// Session Detection
+bool isRth = not na(time(timeframe.period, RTH_SESSION, TIMEZONE))
+bool isFirstBar = isRth and not isRth[1]
+
+// ATR Calculation
+float atrValue = ta.atr(atrLengthInput)
+
+// State Variables
+var float rthClosePrev = na
+var float rthOpenCurrent = na
+var int   rthOpenTime = na
+
+var float overnightHigh = na
+var float overnightLow = na
+
+var float openingRangeHigh = na
+var float openingRangeLow = na
+var bool  openingRangeFrozen = false
+
+var int tradesToday = 0
+var int entryBarIndex = na
+
+// Prior RTH Close + Overnight Range Tracking
+if not isRth and isRth[1]
+  rthClosePrev := close[1]
+  overnightHigh := high
+  overnightLow := low
+
+if not isRth
+  overnightHigh := math.max(high, nz(overnightHigh, high))
+  overnightLow := math.min(low, nz(overnightLow, low))
+
+// RTH Open Reset
+if isFirstBar
+  rthOpenCurrent := open
+  rthOpenTime := time
+  openingRangeHigh := high
+  openingRangeLow := low
+  openingRangeFrozen := false
+  tradesToday := 0
+
+// Opening Range Build
+int barsInOpeningRange = math.max(1, math.ceil(openingRangeLengthInput / timeframe.multiplier))
+if isRth and not openingRangeFrozen
+  if ta.barssince(isFirstBar) < barsInOpeningRange
+    openingRangeHigh := math.max(high, nz(openingRangeHigh, high))
+    openingRangeLow := math.min(low, nz(openingRangeLow, low))
+  else
+    openingRangeFrozen := true
+
+// Gap Calculation and Validation
+float gapPoints = not na(rthOpenCurrent) and not na(rthClosePrev) ? 
+  math.abs(rthOpenCurrent - rthClosePrev) : na
+
+bool gapBigEnough = not useAtrFilterInput ? true : 
+  (not na(gapPoints) and gapPoints >= minGapPointsInput and gapPoints >= gapAtrMultInput * atrValue)
+
+float gapSizePct = not na(rthOpenCurrent) and not na(rthClosePrev) ? 
+  (rthOpenCurrent - rthClosePrev) / rthClosePrev : na
+
+float gapMinPctDecimal = gapMinPctInput / 100
+bool validGapUp = gapSizePct > gapMinPctDecimal and gapBigEnough
+bool validGapDown = gapSizePct < -gapMinPctDecimal and gapBigEnough
+
+// NYSE TICK Breadth Veto
+float tickValue = request.security("NYSE:TICK", timeframe.period, close)
+bool tickExtremeUp = ta.sum(tickValue > tickFilterInput ? 1 : 0, tickLookbackInput) >= tickVetoCountInput
+bool tickExtremeDown = ta.sum(tickValue < -tickFilterInput ? 1 : 0, tickLookbackInput) >= tickVetoCountInput
+
+// Failure Logic (Price fails at overnight extremes)
+bool failedOvernightHigh = high > overnightHigh and close < overnightHigh
+bool failedOvernightLow = low < overnightLow and close > overnightLow
+
+// Execution Penalty Window
+float minutesSinceOpen = not na(rthOpenTime) ? (time - rthOpenTime) / MILLISECONDS_PER_MINUTE : na
+bool inExecWindow = isRth and not na(minutesSinceOpen) and minutesSinceOpen <= execWindowMinsInput
+float execPenalty = (useExecPenaltyInput and inExecWindow) ? execPenaltyPointsInput : 0.0
+
+float shortEntryPrice = openingRangeLow - execPenalty
+float longEntryPrice = openingRangeHigh + execPenalty
+
+// Trade Gate
+bool canTrade = isRth and inDateRange and openingRangeFrozen and tradesToday < maxTradesDayInput
+
+// ————— Strategy Calls
+// Entry Orders (STOP orders with execution penalty)
+if canTrade and strategy.position_size == 0
+  if validGapUp and failedOvernightHigh and not tickExtremeUp
+    strategy.entry(ENTRY_SHORT_ID, strategy.short, stop=shortEntryPrice)
+  
+  if validGapDown and failedOvernightLow and not tickExtremeDown
+    strategy.entry(ENTRY_LONG_ID, strategy.long, stop=longEntryPrice)
+
+// Detect Actual Fill
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+  entryBarIndex := bar_index
+  tradesToday += 1
+
+// Exit Logic
+if strategy.position_size != 0
+  // Target: Previous RTH Close (adjusted for execution penalty during window)
+  float targetPrice = rthClosePrev
+  if useExecPenaltyInput and inExecWindow
+    targetPrice := strategy.position_size > 0 ? 
+      (rthClosePrev - execPenalty) : 
+      (rthClosePrev + execPenalty)
+  
+  // Stop: Overnight extreme (invalidation point)
+  float stopPrice = strategy.position_size > 0 ? overnightLow : overnightHigh
+  strategy.exit(EXIT_ID, limit=targetPrice, stop=stopPrice)
+  
+  // Time-based exit
+  if not na(entryBarIndex) and (bar_index - entryBarIndex) >= maxHoldBarsInput
+    strategy.close_all(comment=EXIT_TIMEOUT_COMMENT)
+
+// Cleanup
+if strategy.position_size == 0
+  entryBarIndex := na
+
+if not isRth
+  strategy.close_all(comment=EXIT_EOD_COMMENT)

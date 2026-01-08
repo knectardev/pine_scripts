@@ -7,9 +7,9 @@
       "version": "2.5.0",
       "pineVersion": 5,
       "description": "Professional ES futures fade strategy trading opening gaps with comprehensive filters. Includes ATR volatility filter, NYSE TICK breadth analysis, execution penalty modeling for realistic slippage near market open, and sophisticated position management. Fully compliant with Pine Script v5 official coding standards.",
-      "filePath": "scripts\\strategies\\es-professional-fade-strategy\\v2.5.0\\v2.5.1\\v2.5.2\\v2.5.3.pine",
+      "filePath": "scripts\\strategies\\es-professional-fade-strategy\\v2.5.0\\v2.5.1.pine",
       "dateCreated": "2026-01-08T19:00:00Z",
-      "dateModified": "2026-01-08T18:55:18.342982Z",
+      "dateModified": "2026-01-08T18:05:51.731248Z",
       "author": "Your Name",
       "tags": [
         "es-futures",
@@ -137,26 +137,10 @@
           "dateCreated": "2026-01-08T18:05:51.731248Z",
           "changelog": "Auto-fix: 31 issue(s) fixed - Line 7: Added operator spacing, Line 8: Added operator spacing, Line 8: Converted 'initial_capital' to 'initialCapital' (+28 more)",
           "author": "autofix",
-          "isActive": false
-        },
-        {
-          "version": "2.5.2",
-          "filePath": "scripts\\strategies\\es-professional-fade-strategy\\v2.5.0\\v2.5.1\\v2.5.2.pine",
-          "dateCreated": "2026-01-08T18:21:57.812737Z",
-          "changelog": "Auto-fix: 3 issue(s) fixed - Line 175: Added warning about ta.* scoping, Line 196: Added explicit barmerge parameters to request.security(), Added spacing after commas",
-          "author": "autofix",
-          "isActive": false
-        },
-        {
-          "version": "2.5.3",
-          "filePath": "scripts\\strategies\\es-professional-fade-strategy\\v2.5.0\\v2.5.1\\v2.5.2\\v2.5.3.pine",
-          "dateCreated": "2026-01-08T18:55:18.342982Z",
-          "changelog": "Smart Auto-fix (LLM): Fixed 1 critical and 7 high-priority issues. The changes made in the code are as follows:\n\n1. Moved the `ta.*` function calls to the global scope",
-          "author": "smart-autofix",
           "isActive": true
         }
       ],
-      "currentVersion": "2.5.3"
+      "currentVersion": "2.5.1"
     },
     {
       "id": "example-ema-crossover-strategy",
@@ -165,9 +149,9 @@
       "version": "1.1.0",
       "pineVersion": 5,
       "description": "Simple exponential moving average crossover strategy with configurable periods. Fully compliant with Pine Script v5 official coding standards.",
-      "filePath": "scripts\\strategies\\ema-crossover-strategy\\v1.1.0\\v1.1.1.pine",
+      "filePath": "scripts\\strategies\\ema-crossover-strategy\\v1.1.0.pine",
       "dateCreated": "2026-01-08T09:00:00Z",
-      "dateModified": "2026-01-08T18:57:07.099278Z",
+      "dateModified": "2026-01-08T18:30:00Z",
       "author": "Your Name",
       "tags": [
         "trend",
@@ -224,18 +208,10 @@
           "dateCreated": "2026-01-08T18:30:00Z",
           "changelog": "Initial version (auto-migrated)",
           "author": "Your Name",
-          "isActive": false
-        },
-        {
-          "version": "1.1.1",
-          "filePath": "scripts\\strategies\\ema-crossover-strategy\\v1.1.0\\v1.1.1.pine",
-          "dateCreated": "2026-01-08T18:57:07.099278Z",
-          "changelog": "Auto-fix: 22 issue(s) fixed - Line 6: Added operator spacing, Line 7: Added operator spacing, Line 7: Converted 'default_qty_type' to 'defaultQtyType' (+19 more)",
-          "author": "autofix",
           "isActive": true
         }
       ],
-      "currentVersion": "1.1.1"
+      "currentVersion": "1.1.0"
     },
     {
       "id": "example-rsi-divergence-indicator",
@@ -244,9 +220,9 @@
       "version": "1.3.0",
       "pineVersion": 5,
       "description": "Automatically detects bullish and bearish divergences on RSI. Identifies both regular and hidden divergences. Fully compliant with Pine Script v5 official coding standards.",
-      "filePath": "scripts\\indicators\\rsi-divergence-indicator\\v1.3.0\\v1.3.1\\v1.3.2.pine",
+      "filePath": "scripts\\indicators\\rsi-divergence-indicator\\v1.3.0.pine",
       "dateCreated": "2026-01-05T14:30:00Z",
-      "dateModified": "2026-01-08T18:57:28.630350Z",
+      "dateModified": "2026-01-08T18:30:00Z",
       "author": "Your Name",
       "tags": [
         "rsi",
@@ -289,40 +265,24 @@
           "dateCreated": "2026-01-08T18:30:00Z",
           "changelog": "Initial version (auto-migrated)",
           "author": "Your Name",
-          "isActive": false
-        },
-        {
-          "version": "1.3.1",
-          "filePath": "scripts\\indicators\\rsi-divergence-indicator\\v1.3.0\\v1.3.1.pine",
-          "dateCreated": "2026-01-08T18:23:58.374258Z",
-          "changelog": "test change",
-          "author": "user",
-          "isActive": false
-        },
-        {
-          "version": "1.3.2",
-          "filePath": "scripts\\indicators\\rsi-divergence-indicator\\v1.3.0\\v1.3.1\\v1.3.2.pine",
-          "dateCreated": "2026-01-08T18:57:28.630350Z",
-          "changelog": "Auto-fix: 28 issue(s) fixed - Line 5: Added operator spacing, Line 55: Added operator spacing, Line 56: Added operator spacing (+25 more)",
-          "author": "autofix",
           "isActive": true
         }
       ],
-      "currentVersion": "1.3.2"
+      "currentVersion": "1.3.0"
     },
     {
       "name": "test",
       "type": "indicator",
       "version": "1.0.0",
       "status": "active",
-      "filePath": "scripts\\indicators\\test\\v1.0.0\\v1.0.1.pine",
+      "filePath": "scripts\\indicators\\test\\v1.0.0.pine",
       "description": "",
       "author": "",
       "pineVersion": 5,
       "id": "7761ebdc",
       "dateCreated": "2026-01-08T18:11:51.137329Z",
-      "dateModified": "2026-01-08T18:24:39.442788Z",
-      "currentVersion": "1.0.1",
+      "dateModified": "2026-01-08T18:11:51.137329Z",
+      "currentVersion": "1.0.0",
       "versions": [
         {
           "version": "1.0.0",
@@ -330,14 +290,6 @@
           "dateCreated": "2026-01-08T18:11:51.137329Z",
           "changelog": "Initial version",
           "author": "",
-          "isActive": false
-        },
-        {
-          "version": "1.0.1",
-          "filePath": "scripts\\indicators\\test\\v1.0.0\\v1.0.1.pine",
-          "dateCreated": "2026-01-08T18:24:39.442788Z",
-          "changelog": "test change",
-          "author": "user",
           "isActive": true
         }
       ]

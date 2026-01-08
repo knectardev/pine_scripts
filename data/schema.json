@@ -23,9 +23,53 @@
             "enum": ["indicator", "strategy", "study"],
             "description": "Type of Pine Script"
           },
-          "version": {
+          "currentVersion": {
             "type": "string",
-            "description": "Script version (semantic versioning recommended)"
+            "description": "Current active version (semantic versioning recommended)"
+          },
+          "versions": {
+            "type": "array",
+            "description": "Complete version history for this script",
+            "items": {
+              "type": "object",
+              "required": ["version", "filePath", "dateCreated"],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "description": "Version number"
+                },
+                "filePath": {
+                  "type": "string",
+                  "description": "Path to this version's file"
+                },
+                "dateCreated": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When this version was created"
+                },
+                "changelog": {
+                  "type": "string",
+                  "description": "Changes in this version"
+                },
+                "author": {
+                  "type": "string",
+                  "description": "Who created this version (user or 'autofix')"
+                },
+                "codeReviewScore": {
+                  "type": "number",
+                  "description": "Code quality score (0-100) from review"
+                },
+                "backtest": {
+                  "type": "object",
+                  "description": "Backtest results for this version"
+                },
+                "isActive": {
+                  "type": "boolean",
+                  "description": "Whether this is the current active version",
+                  "default": false
+                }
+              }
+            }
           },
           "pineVersion": {
             "type": "integer",

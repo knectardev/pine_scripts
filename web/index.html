@@ -12,8 +12,15 @@
 <body>
     <div class="container">
         <header>
-            <h1>📈 Pine Script Library</h1>
-            <p class="subtitle">TradingView Scripts Collection</p>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h1>📈 Pine Script Library</h1>
+                    <p class="subtitle">TradingView Scripts Collection</p>
+                </div>
+                <button class="btn btn-secondary" onclick="openSettingsModal()" style="height: fit-content;">
+                    ⚙️ Settings
+                </button>
+            </div>
         </header>
 
         <div class="controls">
@@ -103,16 +110,27 @@
                         <button class="btn btn-secondary" onclick="reviewCode()">
                             <span id="reviewButtonText">🔍 Code Review</span>
                         </button>
-                        <button class="btn btn-primary" onclick="copyCode()">
+                        <button class="btn btn-secondary" id="editCodeButton" onclick="toggleEditMode()">
+                            <span id="editButtonText">✏️ Edit</span>
+                        </button>
+                        <button class="btn btn-success" id="saveCodeButton" onclick="saveEditedCode()" style="display: none;">
+                            <span id="saveButtonText">💾 Save</span>
+                        </button>
+                        <button class="btn btn-secondary" id="cancelEditButton" onclick="cancelEditMode()" style="display: none;">
+                            Cancel
+                        </button>
+                        <button class="btn btn-primary" id="copyCodeButton" onclick="copyCode()">
                             <span id="copyButtonText">📋 Copy Code</span>
                         </button>
                     </div>
                 </div>
-                <div class="code-info">
+                <div class="code-info" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0;">
                     <span id="codeFilePath"></span>
+                    <div id="codeVersionSelect" style="display: none;"></div>
                 </div>
                 <div class="code-container">
-                    <pre><code id="codeContent" class="language-pinescript"></code></pre>
+                    <pre id="codeDisplay"><code id="codeContent" class="language-pinescript"></code></pre>
+                    <textarea id="codeEditor" class="code-editor" style="display: none;"></textarea>
                 </div>
             </div>
         </div>
@@ -122,9 +140,17 @@
                 <span class="close" onclick="closeReviewModal()">&times;</span>
                 <div class="review-modal-header">
                     <h2>📋 Code Review Report</h2>
-                    <button class="btn btn-primary" onclick="exportReviewToPDF()" id="exportPdfBtn" style="display: none;">
-                        <span id="exportButtonText">📄 Export PDF</span>
-                    </button>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-success" onclick="autoFixCode()" id="autoFixBtn" style="display: none;">
+                            <span id="autoFixButtonText">🔧 Quick Fix</span>
+                        </button>
+                        <button class="btn btn-success" onclick="smartAutoFixCode()" id="smartAutoFixBtn" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <span id="smartAutoFixButtonText">✨ Smart Fix (LLM)</span>
+                        </button>
+                        <button class="btn btn-primary" onclick="exportReviewToPDF()" id="exportPdfBtn" style="display: none;">
+                            <span id="exportButtonText">📄 Export PDF</span>
+                        </button>
+                    </div>
                 </div>
                 <div id="reviewModalBody">
                     <!-- Populated by JavaScript -->
@@ -174,8 +200,16 @@
                             </div>
                             
                             <div class="form-group">
-                                <label for="edit_filePath">File Path *</label>
-                                <input type="text" id="edit_filePath" placeholder="scripts/indicators/my-script.pine" required>
+                                <label for="edit_filePath">
+                                    File Path *
+                                    <small style="color: var(--text-secondary); font-weight: normal; margin-left: 8px;">
+                                        (auto-generated from name and type)
+                                    </small>
+                                </label>
+                                <input type="text" id="edit_filePath" placeholder="Auto-generated: scripts/indicators/my-script.pine" required>
+                                <small style="display: block; margin-top: 6px; color: var(--text-secondary); font-style: italic;">
+                                    💡 Example: "My RSI Strategy" → scripts/strategies/my-rsi-strategy.pine
+                                </small>
                             </div>
                             
                             <div class="form-group">
@@ -256,6 +290,69 @@
                         <button type="submit" class="btn btn-primary">Save Script</button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <!-- Settings Modal for API Keys -->
+        <div id="settingsModal" class="modal">
+            <div class="modal-content modal-form" style="max-width: 600px;">
+                <span class="close" onclick="closeSettingsModal()">&times;</span>
+                <h2>⚙️ Settings</h2>
+                
+                <div class="form-section">
+                    <h3>🤖 LLM API Configuration</h3>
+                    <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">
+                        Configure your API key to enable Smart Auto-Fix powered by AI. Your key is stored securely in your browser only.
+                    </p>
+                    
+                    <div class="form-group">
+                        <label for="llmProvider">LLM Provider</label>
+                        <select id="llmProvider" onchange="updateApiKeyPlaceholder()">
+                            <option value="openai">OpenAI (GPT-4)</option>
+                            <option value="claude" disabled>Anthropic Claude (Coming Soon)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="apiKeyInput">
+                            API Key
+                            <small style="color: var(--text-secondary); font-weight: normal; margin-left: 8px;">
+                                (stored locally in browser)
+                            </small>
+                        </label>
+                        <input type="password" id="apiKeyInput" placeholder="sk-...">
+                        <small style="display: block; margin-top: 6px; color: var(--text-secondary);">
+                            <a href="https://platform.openai.com/api-keys" target="_blank" style="color: var(--accent-color);">
+                                🔗 Get your OpenAI API key here
+                            </a>
+                        </small>
+                    </div>
+                    
+                    <div class="form-group" style="background: var(--hover-bg); padding: 15px; border-radius: 8px; border-left: 3px solid var(--accent-color);">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="useServerKey" onchange="toggleApiKeyInput()">
+                            <span>Use server-configured API key (if available)</span>
+                        </label>
+                        <small style="display: block; margin-top: 8px; color: var(--text-secondary); margin-left: 24px;">
+                            If your administrator has configured a server-side API key, you can use it instead of providing your own.
+                        </small>
+                    </div>
+                    
+                    <div style="margin-top: 20px; padding: 15px; background: rgba(255,193,7,0.1); border-radius: 8px; border-left: 3px solid #ffc107;">
+                        <strong style="color: #ffc107;">⚠️ Security Note:</strong>
+                        <ul style="margin: 10px 0 0 20px; color: var(--text-secondary); font-size: 13px;">
+                            <li>Your API key is stored only in your browser's localStorage</li>
+                            <li>It is never saved to the server or any database</li>
+                            <li>Transmitted over HTTPS to the LLM provider only</li>
+                            <li>Keep your API key confidential</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="clearApiKey()">Clear Key</button>
+                    <button type="button" class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+                </div>
             </div>
         </div>
     </div>

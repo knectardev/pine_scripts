@@ -147,7 +147,7 @@ function renderScripts() {
                 <td>
                     <span class="badge badge-${script.type}">${capitalize(script.type)}</span>
                 </td>
-                <td>${escapeHtml(script.version)}</td>
+                <td>${escapeHtml(script.currentVersion || script.version)}</td>
                 <td>
                     <span class="badge badge-${script.status}">${capitalize(script.status)}</span>
                 </td>
@@ -265,12 +265,26 @@ function sortScripts() {
 }
 
 // View script details in modal
-function viewScript(scriptId) {
+async function viewScript(scriptId) {
     const script = allScripts.find(s => s.id === scriptId);
     if (!script) return;
     
     const backtest = script.backtest || {};
     const hasBacktest = Object.keys(backtest).length > 0;
+    
+    // Fetch version history
+    let versions = [];
+    try {
+        const versionsResponse = await fetch(`${API_BASE}/scripts/${scriptId}/versions`);
+        if (versionsResponse.ok) {
+            const versionsData = await versionsResponse.json();
+            versions = versionsData.versions || [];
+        }
+    } catch (error) {
+        console.error('Error fetching versions:', error);
+    }
+    
+    const currentVersion = script.currentVersion || script.version || '1.0.0';
     
     const modalBody = document.getElementById('modalBody');
     modalBody.innerHTML = `
@@ -280,7 +294,8 @@ function viewScript(scriptId) {
                 <div style="display: flex; gap: 10px; margin-top: 10px;">
                     <span class="badge badge-${script.type}">${capitalize(script.type)}</span>
                     <span class="badge badge-${script.status}">${capitalize(script.status)}</span>
-                    <span class="badge" style="background: var(--dark-bg);">v${escapeHtml(script.version)}</span>
+                    <span class="badge" style="background: var(--dark-bg);">v${escapeHtml(currentVersion)}</span>
+                    ${versions.length > 1 ? `<span class="badge" style="background: var(--secondary-color);">${versions.length} versions</span>` : ''}
                 </div>
             </div>
             <button class="btn btn-code" onclick="viewCode('${script.id}')" style="margin-top: 10px;">📄 View Code</button>
@@ -396,6 +411,33 @@ function viewScript(scriptId) {
             <p>${escapeHtml(script.notes)}</p>
         </div>
         ` : ''}
+        
+        ${versions.length > 0 ? `
+        <div class="modal-section">
+            <h3>📜 Version History</h3>
+            <div style="max-height: 300px; overflow-y: auto;">
+                ${versions.map(v => `
+                    <div class="version-item ${v.isActive ? 'version-active' : ''}" style="padding: 12px; margin-bottom: 10px; background: var(--dark-bg); border-radius: 6px; border-left: 3px solid ${v.isActive ? 'var(--primary-color)' : 'var(--border-color)'};">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div>
+                                <strong style="color: var(--primary-color);">v${escapeHtml(v.version)}</strong>
+                                ${v.isActive ? '<span class="badge" style="background: var(--success-color); margin-left: 8px; font-size: 0.75rem;">ACTIVE</span>' : ''}
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-secondary" onclick="viewCode('${script.id}', '${v.version}')" style="padding: 4px 10px; font-size: 0.85rem;">View Code</button>
+                                ${!v.isActive ? `<button class="btn btn-secondary" onclick="restoreVersion('${script.id}', '${v.version}', 'activate')" style="padding: 4px 10px; font-size: 0.85rem;">Restore</button>` : ''}
+                            </div>
+                        </div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 4px;">
+                            ${formatDate(v.dateCreated)} • ${escapeHtml(v.author || 'unknown')}
+                        </div>
+                        ${v.changelog ? `<div style="font-size: 0.9rem; color: var(--text-secondary); font-style: italic;">${escapeHtml(v.changelog)}</div>` : ''}
+                        ${v.codeReviewScore ? `<div style="margin-top: 6px;"><span class="badge" style="background: ${v.codeReviewScore >= 90 ? 'var(--success-color)' : v.codeReviewScore >= 70 ? 'var(--warning-color)' : 'var(--danger-color)'};">Score: ${v.codeReviewScore}/100</span></div>` : ''}
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+        ` : ''}
     `;
     
     const modal = document.getElementById('scriptModal');
@@ -403,9 +445,13 @@ function viewScript(scriptId) {
 }
 
 // Fetch script code
-async function fetchScriptCode(scriptId) {
+async function fetchScriptCode(scriptId, version = null) {
     try {
-        const response = await fetch(`${API_BASE}/scripts/${scriptId}/code`);
+        const url = version 
+            ? `${API_BASE}/scripts/${scriptId}/code?version=${encodeURIComponent(version)}`
+            : `${API_BASE}/scripts/${scriptId}/code`;
+        
+        const response = await fetch(url);
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.error || 'Failed to fetch script code');
@@ -418,17 +464,127 @@ async function fetchScriptCode(scriptId) {
     }
 }
 
+// Update version dropdown in code modal
+function updateCodeVersionDropdown() {
+    const versionSelectContainer = document.getElementById('codeVersionSelect');
+    if (!versionSelectContainer) return;
+    
+    if (currentVersions.length <= 1) {
+        versionSelectContainer.style.display = 'none';
+        return;
+    }
+    
+    versionSelectContainer.style.display = 'flex';
+    versionSelectContainer.style.alignItems = 'center';
+    versionSelectContainer.style.gap = '10px';
+    
+    let html = `
+        <label style="color: var(--text-secondary); font-size: 0.9rem;">Version:</label>
+        <select id="versionDropdown" onchange="changeCodeVersion(this.value)" style="padding: 6px 12px; background: var(--dark-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
+    `;
+    
+    currentVersions.forEach(v => {
+        const isActive = v.version === currentSelectedVersion;
+        const activeLabel = v.isActive ? ' (current)' : '';
+        html += `<option value="${v.version}" ${isActive ? 'selected' : ''}>${v.version}${activeLabel}</option>`;
+    });
+    
+    html += `</select>`;
+    
+    // Add restore button for non-active versions
+    const selectedVersion = currentVersions.find(v => v.version === currentSelectedVersion);
+    if (selectedVersion && !selectedVersion.isActive) {
+        html += `<button class="btn btn-secondary" onclick="showRestoreOptions()" style="padding: 6px 12px; font-size: 0.9rem;">🔄 Restore</button>`;
+    }
+    
+    versionSelectContainer.innerHTML = html;
+}
+
+// Change code version
+async function changeCodeVersion(version) {
+    currentSelectedVersion = version;
+    await viewCode(currentScriptId, version);
+}
+
+// Show restore version options
+function showRestoreOptions() {
+    const message = `Choose how to restore version ${currentSelectedVersion}:\n\n` +
+                    `• Activate: Make this version the active version\n` +
+                    `• Create New: Create a new version based on this one\n\n` +
+                    `Click OK to Activate, or Cancel to Create New.`;
+    
+    const activate = confirm(message);
+    const mode = activate ? 'activate' : 'new';
+    
+    restoreVersion(currentScriptId, currentSelectedVersion, mode);
+}
+
+// Restore a version
+async function restoreVersion(scriptId, version, mode) {
+    try {
+        showNotification(`Restoring version ${version}...`, 'info');
+        
+        const response = await fetch(`${API_BASE}/scripts/${scriptId}/versions/${version}/restore`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ mode: mode })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to restore version');
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            if (mode === 'activate') {
+                showNotification(`✅ Version ${version} is now active!`, 'success');
+            } else {
+                showNotification(`✅ Created new version ${result.newVersion} based on ${version}!`, 'success');
+            }
+            
+            // Reload scripts and refresh view
+            await loadScripts();
+            await viewCode(scriptId);  // Refresh to show new current
+        }
+        
+    } catch (error) {
+        console.error('Error restoring version:', error);
+        showNotification(`Error: ${error.message}`, 'error');
+    }
+}
+
 // Open code viewer modal
 let currentScriptId = null;
+let currentVersions = [];
+let currentSelectedVersion = null;
+let isEditMode = false;
+let originalCode = '';
 
-async function viewCode(scriptId) {
+async function viewCode(scriptId, version = null) {
     try {
         currentScriptId = scriptId;  // Store for code review
-        const codeData = await fetchScriptCode(scriptId);
+        
+        // Fetch version history first
+        const versionsResponse = await fetch(`${API_BASE}/scripts/${scriptId}/versions`);
+        if (versionsResponse.ok) {
+            const versionsData = await versionsResponse.json();
+            currentVersions = versionsData.versions || [];
+            currentSelectedVersion = version || versionsData.currentVersion;
+        }
+        
+        // Fetch code for specific version or current
+        const codeData = await fetchScriptCode(scriptId, version);
         
         // Update modal content
         document.getElementById('codeModalTitle').textContent = codeData.name || 'Pine Script Code';
-        document.getElementById('codeFilePath').textContent = `File: ${codeData.filePath}`;
+        document.getElementById('codeFilePath').textContent = `File: ${codeData.filePath} | Version: ${codeData.version || 'current'}`;
+        
+        // Update version dropdown if exists
+        updateCodeVersionDropdown();
         
         const codeElement = document.getElementById('codeContent');
         codeElement.textContent = codeData.code;
@@ -456,11 +612,18 @@ async function viewCode(scriptId) {
 function closeCodeModal() {
     const modal = document.getElementById('codeModal');
     modal.style.display = 'none';
+    
+    // Reset edit mode if active
+    if (isEditMode) {
+        cancelEditMode();
+    }
 }
 
 // Copy code to clipboard
 function copyCode() {
-    const codeContent = document.getElementById('codeContent').textContent;
+    const codeContent = isEditMode 
+        ? document.getElementById('codeEditor').value 
+        : document.getElementById('codeContent').textContent;
     const copyButton = document.getElementById('copyButtonText');
     
     navigator.clipboard.writeText(codeContent).then(() => {
@@ -479,6 +642,156 @@ function copyCode() {
     });
 }
 
+// Toggle edit mode
+function toggleEditMode() {
+    if (isEditMode) {
+        cancelEditMode();
+    } else {
+        enterEditMode();
+    }
+}
+
+// Enter edit mode
+function enterEditMode() {
+    isEditMode = true;
+    
+    // Get current code
+    const codeContent = document.getElementById('codeContent');
+    originalCode = codeContent.textContent;
+    
+    // Hide display elements
+    document.getElementById('codeDisplay').style.display = 'none';
+    
+    // Show and populate editor
+    const codeEditor = document.getElementById('codeEditor');
+    codeEditor.value = originalCode;
+    codeEditor.style.display = 'block';
+    
+    // Update buttons
+    document.getElementById('editCodeButton').style.display = 'none';
+    document.getElementById('saveCodeButton').style.display = 'inline-block';
+    document.getElementById('cancelEditButton').style.display = 'inline-block';
+    document.getElementById('copyCodeButton').style.display = 'inline-block';
+    document.getElementById('reviewButtonText').parentElement.style.display = 'none';
+    
+    // Disable version selector if present
+    const versionSelect = document.getElementById('versionDropdown');
+    if (versionSelect) {
+        versionSelect.disabled = true;
+    }
+    
+    showNotification('Edit mode enabled. Make your changes and click Save to create a new version.', 'info');
+}
+
+// Cancel edit mode
+function cancelEditMode() {
+    if (isEditMode && document.getElementById('codeEditor').value !== originalCode) {
+        if (!confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+            return;
+        }
+    }
+    
+    isEditMode = false;
+    
+    // Show display elements
+    document.getElementById('codeDisplay').style.display = 'block';
+    
+    // Hide editor
+    document.getElementById('codeEditor').style.display = 'none';
+    
+    // Update buttons
+    document.getElementById('editCodeButton').style.display = 'inline-block';
+    document.getElementById('saveCodeButton').style.display = 'none';
+    document.getElementById('cancelEditButton').style.display = 'none';
+    document.getElementById('copyCodeButton').style.display = 'inline-block';
+    document.getElementById('reviewButtonText').parentElement.style.display = 'inline-block';
+    
+    // Re-enable version selector if present
+    const versionSelect = document.getElementById('versionDropdown');
+    if (versionSelect) {
+        versionSelect.disabled = false;
+    }
+}
+
+// Save edited code
+async function saveEditedCode() {
+    if (!currentScriptId) {
+        showNotification('No script loaded', 'error');
+        return;
+    }
+    
+    const editedCode = document.getElementById('codeEditor').value;
+    
+    if (editedCode === originalCode) {
+        showNotification('No changes to save', 'info');
+        return;
+    }
+    
+    // Prompt for changelog
+    const changelog = prompt('Enter a brief description of your changes:', 'Manual edit via web interface');
+    
+    if (changelog === null) {
+        return; // User cancelled
+    }
+    
+    try {
+        // Update button state
+        const saveButton = document.getElementById('saveButtonText');
+        const originalText = saveButton.textContent;
+        saveButton.textContent = '⏳ Saving...';
+        
+        // Call API to save edited code and create new version
+        const response = await fetch(`${API_BASE}/scripts/${currentScriptId}/save-code`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                code: editedCode,
+                changelog: changelog || 'Manual edit',
+                author: 'user'
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to save code');
+        }
+        
+        const result = await response.json();
+        
+        // Reset button
+        saveButton.textContent = originalText;
+        
+        // Show success message
+        showNotification(`✅ Code saved! New version: ${result.newVersion}`, 'success');
+        
+        // Exit edit mode without prompting (we just saved)
+        isEditMode = false;
+        document.getElementById('codeDisplay').style.display = 'block';
+        document.getElementById('codeEditor').style.display = 'none';
+        document.getElementById('editCodeButton').style.display = 'inline-block';
+        document.getElementById('saveCodeButton').style.display = 'none';
+        document.getElementById('cancelEditButton').style.display = 'none';
+        document.getElementById('copyCodeButton').style.display = 'inline-block';
+        document.getElementById('reviewButtonText').parentElement.style.display = 'inline-block';
+        
+        // Reload scripts list
+        await loadScripts();
+        
+        // Refresh code view to show new version
+        await viewCode(currentScriptId, result.newVersion);
+        
+    } catch (error) {
+        console.error('Error saving code:', error);
+        showNotification(`Error: ${error.message}`, 'error');
+        
+        // Reset button
+        const saveButton = document.getElementById('saveButtonText');
+        saveButton.textContent = '💾 Save';
+    }
+}
+
 // Copy file path to clipboard
 function copyFilePath(filePath) {
     navigator.clipboard.writeText(filePath).then(() => {
@@ -495,6 +808,7 @@ function openEditModal(scriptId = null) {
     const modal = document.getElementById('editModal');
     const form = document.getElementById('editForm');
     const title = document.getElementById('editModalTitle');
+    const filePathField = document.getElementById('edit_filePath');
     
     if (scriptId) {
         // Edit mode
@@ -506,14 +820,19 @@ function openEditModal(scriptId = null) {
         // Populate form
         document.getElementById('edit_name').value = script.name || '';
         document.getElementById('edit_type').value = script.type || 'indicator';
-        document.getElementById('edit_version').value = script.version || '1.0.0';
+        document.getElementById('edit_version').value = script.currentVersion || script.version || '1.0.0';
         document.getElementById('edit_status').value = script.status || 'active';
-        document.getElementById('edit_filePath').value = script.filePath || '';
+        filePathField.value = script.filePath || '';
         document.getElementById('edit_description').value = script.description || '';
         document.getElementById('edit_author').value = script.author || '';
         document.getElementById('edit_tags').value = (script.tags || []).join(', ');
         document.getElementById('edit_timeframes').value = (script.timeframes || []).join(', ');
         document.getElementById('edit_notes').value = script.notes || '';
+        
+        // Make file path read-only in edit mode (can't change existing file location)
+        filePathField.readOnly = true;
+        filePathField.style.backgroundColor = 'var(--dark-bg)';
+        filePathField.style.cursor = 'not-allowed';
         
         // Backtest fields
         if (script.backtest) {
@@ -529,6 +848,14 @@ function openEditModal(scriptId = null) {
         // Create mode
         title.textContent = 'Create New Script';
         form.reset();
+        
+        // Enable file path field in create mode
+        filePathField.readOnly = false;
+        filePathField.style.backgroundColor = '';
+        filePathField.style.cursor = '';
+        
+        // Trigger initial path generation if name already has a value
+        generateFilePath();
     }
     
     modal.style.display = 'block';
@@ -639,6 +966,45 @@ function getMetricClass(value, thresholdNeutral, thresholdPositive, higherIsBett
     }
 }
 
+// Auto-generate file path based on name and type
+function generateFilePath() {
+    const name = document.getElementById('edit_name').value.trim();
+    const type = document.getElementById('edit_type').value;
+    
+    if (!name) {
+        document.getElementById('edit_filePath').value = '';
+        return;
+    }
+    
+    // Convert name to filename format (lowercase, spaces to dashes)
+    const filename = name
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '') // Remove special characters except spaces and dashes
+        .replace(/\s+/g, '-')          // Replace spaces with dashes
+        .replace(/-+/g, '-')           // Replace multiple dashes with single dash
+        .trim();
+    
+    // Determine directory based on type
+    let directory = '';
+    switch(type) {
+        case 'indicator':
+            directory = 'scripts/indicators';
+            break;
+        case 'strategy':
+            directory = 'scripts/strategies';
+            break;
+        case 'study':
+            directory = 'scripts/studies';
+            break;
+        default:
+            directory = 'scripts';
+    }
+    
+    // Generate full path
+    const filePath = `${directory}/${filename}.pine`;
+    document.getElementById('edit_filePath').value = filePath;
+}
+
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
     loadScripts();
@@ -650,6 +1016,18 @@ document.addEventListener('DOMContentLoaded', () => {
         sortScripts();
         renderScripts();
     });
+    
+    // Add listeners for auto-generating file path
+    const editNameField = document.getElementById('edit_name');
+    const editTypeField = document.getElementById('edit_type');
+    
+    if (editNameField) {
+        editNameField.addEventListener('input', generateFilePath);
+    }
+    
+    if (editTypeField) {
+        editTypeField.addEventListener('change', generateFilePath);
+    }
     
     // Modal close handlers
     const modal = document.getElementById('scriptModal');
@@ -688,8 +1066,14 @@ async function reviewCode() {
         const originalText = reviewButton.textContent;
         reviewButton.textContent = '⏳ Reviewing...';
         
+        // Build URL with version parameter if specific version is selected
+        let url = `${API_BASE}/scripts/${currentScriptId}/review`;
+        if (currentSelectedVersion) {
+            url += `?version=${encodeURIComponent(currentSelectedVersion)}`;
+        }
+        
         // Fetch review
-        const response = await fetch(`${API_BASE}/scripts/${currentScriptId}/review`);
+        const response = await fetch(url);
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.error || 'Failed to review code');
@@ -701,7 +1085,7 @@ async function reviewCode() {
         // Reset button
         reviewButton.textContent = originalText;
         
-        // Display review results
+        // Display review results (with version info)
         displayReviewResults(reviewData);
         
     } catch (error) {
@@ -723,8 +1107,15 @@ function displayReviewResults(reviewData) {
     const warningCount = reviewData.issues.filter(i => i.severity === 'WARNING').length;
     const passCount = reviewData.issues.filter(i => i.severity === 'PASS').length;
     
-    // Build summary
+    // Build summary with version info
+    const reviewedVersion = reviewData.reviewedVersion || 'current';
+    
     let summaryHTML = `
+        <div style="margin-bottom: 15px; padding: 10px; background: var(--dark-bg); border-radius: 6px; border-left: 3px solid var(--primary-color);">
+            <strong>Reviewing:</strong> ${escapeHtml(reviewData.scriptName)} 
+            <span style="color: var(--text-secondary);">(Version: ${escapeHtml(reviewedVersion)})</span>
+        </div>
+        
         <div class="review-summary">
             <div class="review-summary-item critical">
                 <h3>${criticalCount}</h3>
@@ -836,6 +1227,21 @@ function displayReviewResults(reviewData) {
         exportBtn.style.display = 'block';
     }
     
+    // Show auto-fix button if there are fixable issues
+    const autoFixBtn = document.getElementById('autoFixBtn');
+    const smartAutoFixBtn = document.getElementById('smartAutoFixBtn');
+    const hasFixableIssues = criticalCount > 0 || highCount > 0 || warningCount > 0;
+    const hasCriticalOrHighIssues = criticalCount > 0 || highCount > 0;
+    
+    if (autoFixBtn && hasFixableIssues) {
+        autoFixBtn.style.display = 'block';
+    }
+    
+    // Show smart auto-fix button only if there are CRITICAL or HIGH issues
+    if (smartAutoFixBtn && hasCriticalOrHighIssues) {
+        smartAutoFixBtn.style.display = 'block';
+    }
+    
     // Show modal
     const modal = document.getElementById('reviewModal');
     modal.style.display = 'block';
@@ -848,6 +1254,15 @@ function closeReviewModal() {
     const exportBtn = document.getElementById('exportPdfBtn');
     if (exportBtn) {
         exportBtn.style.display = 'none';
+    }
+    // Hide auto-fix buttons
+    const autoFixBtn = document.getElementById('autoFixBtn');
+    const smartAutoFixBtn = document.getElementById('smartAutoFixBtn');
+    if (autoFixBtn) {
+        autoFixBtn.style.display = 'none';
+    }
+    if (smartAutoFixBtn) {
+        smartAutoFixBtn.style.display = 'none';
     }
 }
 
@@ -995,4 +1410,283 @@ function styleForPDF(element) {
     element.querySelectorAll('.review-summary-item.high h3').forEach(el => el.style.color = '#ff9800');
     element.querySelectorAll('.review-summary-item.warning h3').forEach(el => el.style.color = '#ffc107');
     element.querySelectorAll('.review-summary-item.pass h3').forEach(el => el.style.color = '#4caf50');
+}
+
+// Auto-fix code issues
+async function autoFixCode() {
+    if (!currentScriptId || !currentReviewData) {
+        showNotification('No review data available', 'error');
+        return;
+    }
+    
+    // Confirm before proceeding
+    const issuesCount = currentReviewData.summary.critical + currentReviewData.summary.high + currentReviewData.summary.warning;
+    const confirmMessage = `Auto-fix will attempt to automatically correct ${issuesCount} issue(s) and increment the version number.\n\nA backup will be created before making changes.\n\nProceed?`;
+    
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+    
+    try {
+        // Update button state
+        const autoFixButton = document.getElementById('autoFixButtonText');
+        const originalText = autoFixButton.textContent;
+        autoFixButton.textContent = '⏳ Fixing...';
+        
+        // Call auto-fix API
+        const response = await fetch(`${API_BASE}/scripts/${currentScriptId}/autofix`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                issues: currentReviewData.issues
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to auto-fix code');
+        }
+        
+        const result = await response.json();
+        
+        // Reset button
+        autoFixButton.textContent = originalText;
+        
+        // Show success message with details
+        const fixedCount = result.fixedIssues || 0;
+        const newVersion = result.newVersion || 'unknown';
+        showNotification(`✅ Fixed ${fixedCount} issue(s)! New version: ${newVersion}`, 'success');
+        
+        // Close review modal
+        closeReviewModal();
+        
+        // Reload scripts to show updated version
+        await loadScripts();
+        
+        // Optionally, re-open the code viewer to show fixed code
+        if (confirm('Would you like to view the fixed code?')) {
+            await viewCode(currentScriptId);
+        }
+        
+    } catch (error) {
+        console.error('Error auto-fixing code:', error);
+        showNotification(`Error: ${error.message}`, 'error');
+        
+        // Reset button
+        const autoFixButton = document.getElementById('autoFixButtonText');
+        autoFixButton.textContent = '🔧 Quick Fix';
+    }
+}
+
+// ============================================================================
+// SMART AUTO-FIX (LLM-POWERED)
+// ============================================================================
+
+async function smartAutoFixCode() {
+    if (!currentScriptId) return;
+    
+    try {
+        const smartAutoFixButton = document.getElementById('smartAutoFixButtonText');
+        const originalText = smartAutoFixButton.textContent;
+        
+        // Create progress animation
+        let progressStep = 0;
+        const progressSteps = [
+            '🔍 Analyzing code structure...',
+            '📋 Identifying issues...',
+            '🤖 Sending to AI...',
+            '✨ AI is thinking...',
+            '🔧 Generating fixes...',
+            '📝 Applying changes...'
+        ];
+        
+        const progressInterval = setInterval(() => {
+            smartAutoFixButton.textContent = progressSteps[progressStep % progressSteps.length];
+            progressStep++;
+        }, 2000);
+        
+        // Clear any old cached API key from localStorage (force use of server key)
+        localStorage.removeItem('llmApiKey');
+        
+        // Get API key and settings
+        const useServerKey = localStorage.getItem('useServerKey') === 'true';
+        const apiKey = localStorage.getItem('llmApiKey');
+        const provider = localStorage.getItem('llmProvider') || 'openai';
+        
+        console.log('DEBUG: useServerKey:', useServerKey);
+        console.log('DEBUG: apiKey:', apiKey ? `...${apiKey.slice(-10)}` : 'None');
+        
+        // Build request body - try server key first if no client key
+        const requestBody = {
+            provider: provider
+        };
+        
+        // Only send client-side API key if explicitly provided
+        if (!useServerKey && apiKey) {
+            requestBody.apiKey = apiKey;
+        }
+        
+        console.log('DEBUG: requestBody has apiKey:', !!requestBody.apiKey);
+        
+        // If no client key and not explicitly using server key, try server key anyway
+        // (Server will return error if it doesn't have a key configured)
+        
+        // Add version if reviewing a specific version
+        if (currentSelectedVersion) {
+            requestBody.version = currentSelectedVersion;
+        }
+        
+        const response = await fetch(`${API_BASE}/scripts/${currentScriptId}/smart-autofix`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+            clearInterval(progressInterval);
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to apply smart fixes');
+        }
+        
+        const result = await response.json();
+        
+        // Clear progress animation and reset button
+        clearInterval(progressInterval);
+        smartAutoFixButton.textContent = originalText;
+        
+        if (result.skipped) {
+            showNotification('✅ No critical/high issues found to fix', 'success');
+            return;
+        }
+        
+        // Show success message with details
+        const issuesFixed = result.issuesAddressed || 0;
+        const newVersion = result.newVersion || 'unknown';
+        showNotification(
+            `✨ Smart Fix Complete!\n` +
+            `Fixed ${issuesFixed} critical/high issues\n` +
+            `New version: ${newVersion}`,
+            'success'
+        );
+        
+        // Show explanation if available
+        if (result.explanation) {
+            const showExplanation = confirm(
+                `Smart fixes applied successfully!\n\n` +
+                `Would you like to see what was changed?`
+            );
+            if (showExplanation) {
+                alert(`Changes made:\n\n${result.explanation}`);
+            }
+        }
+        
+        // Close review modal
+        closeReviewModal();
+        
+        // Reload scripts
+        await loadScripts();
+        
+        // Offer to view fixed code
+        if (confirm('Would you like to view the fixed code?')) {
+            await viewCode(currentScriptId);
+        }
+        
+    } catch (error) {
+        console.error('Error applying smart fixes:', error);
+        showNotification(`❌ Error: ${error.message}`, 'error');
+        
+        // Clear progress animation if still running
+        if (typeof progressInterval !== 'undefined') {
+            clearInterval(progressInterval);
+        }
+        
+        // Reset button
+        const smartAutoFixButton = document.getElementById('smartAutoFixButtonText');
+        smartAutoFixButton.textContent = '✨ Smart Fix (LLM)';
+    }
+}
+
+// ============================================================================
+// SETTINGS MODAL
+// ============================================================================
+
+function openSettingsModal() {
+    const modal = document.getElementById('settingsModal');
+    
+    // Load saved settings
+    const apiKey = localStorage.getItem('llmApiKey') || '';
+    const provider = localStorage.getItem('llmProvider') || 'openai';
+    const useServerKey = localStorage.getItem('useServerKey') === 'true';
+    
+    document.getElementById('apiKeyInput').value = apiKey;
+    document.getElementById('llmProvider').value = provider;
+    document.getElementById('useServerKey').checked = useServerKey;
+    
+    // Update UI based on checkbox
+    toggleApiKeyInput();
+    
+    modal.style.display = 'flex';
+}
+
+function closeSettingsModal() {
+    const modal = document.getElementById('settingsModal');
+    modal.style.display = 'none';
+}
+
+function toggleApiKeyInput() {
+    const useServerKey = document.getElementById('useServerKey').checked;
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    
+    if (useServerKey) {
+        apiKeyInput.disabled = true;
+        apiKeyInput.style.opacity = '0.5';
+    } else {
+        apiKeyInput.disabled = false;
+        apiKeyInput.style.opacity = '1';
+    }
+}
+
+function updateApiKeyPlaceholder() {
+    const provider = document.getElementById('llmProvider').value;
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    
+    if (provider === 'openai') {
+        apiKeyInput.placeholder = 'sk-...';
+    } else if (provider === 'claude') {
+        apiKeyInput.placeholder = 'sk-ant-...';
+    }
+}
+
+function saveSettings() {
+    const apiKey = document.getElementById('apiKeyInput').value;
+    const provider = document.getElementById('llmProvider').value;
+    const useServerKey = document.getElementById('useServerKey').checked;
+    
+    // Validate API key if not using server key
+    if (!useServerKey && apiKey && !apiKey.startsWith('sk-')) {
+        alert('⚠️ Warning: API key should start with "sk-"');
+        return;
+    }
+    
+    // Save to localStorage
+    if (apiKey) {
+        localStorage.setItem('llmApiKey', apiKey);
+    }
+    localStorage.setItem('llmProvider', provider);
+    localStorage.setItem('useServerKey', useServerKey.toString());
+    
+    showNotification('✅ Settings saved successfully!', 'success');
+    closeSettingsModal();
+}
+
+function clearApiKey() {
+    if (confirm('Are you sure you want to clear your stored API key?')) {
+        localStorage.removeItem('llmApiKey');
+        document.getElementById('apiKeyInput').value = '';
+        showNotification('✅ API key cleared', 'success');
+    }
 }

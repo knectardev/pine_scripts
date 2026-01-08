@@ -1,0 +1,16 @@
+// This Pine Script was created via Pine Script Library
+// © 
+//@version=5
+indicator("test", overlay=true)
+
+// ————— Constants
+// Add your constants here
+
+// ————— Inputs
+// Add your input parameters here
+
+// ————— Calculations
+// Add your calculations here
+
+// ————— Visuals
+// Add your plots and visual elements here

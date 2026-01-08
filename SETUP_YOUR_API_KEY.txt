@@ -1,0 +1,57 @@
+🔐 HOW TO ADD YOUR OPENAI API KEY
+=====================================
+
+STEP 1: Create a file named .env in this directory
+-----------------------------------------------
+Location: C:\local_dev\pine_scripts\.env
+
+(Right-click in the folder → New → Text Document → Name it ".env" without .txt extension)
+
+
+STEP 2: Paste this into .env and replace with your actual API key
+------------------------------------------------------------------
+
+OPENAI_API_KEY=sk-your-actual-api-key-goes-here
+DEFAULT_LLM_PROVIDER=openai
+OPENAI_MODEL=gpt-4
+
+
+STEP 3: Get your API key
+------------------------
+Visit: https://platform.openai.com/api-keys
+
+1. Sign in to your OpenAI account
+2. Click "Create new secret key"
+3. Copy the key (starts with "sk-")
+4. Paste it in the .env file above
+
+
+STEP 4: Restart the Flask server
+---------------------------------
+1. Stop the current server (Ctrl+C in the terminal)
+2. Run: python server.py
+
+
+DONE! 🎉
+--------
+Now when you click "Smart Fix (LLM)" in the code review, it will use your API key.
+
+
+⚠️ SECURITY NOTES:
+-------------------
+- The .env file is gitignored and won't be committed
+- Never share your .env file or commit it to version control
+- Your API key is kept private on your machine
+- It's only sent to OpenAI's API over HTTPS
+
+
+ALTERNATIVE: Use Client-Side API Key
+-------------------------------------
+If you don't want to use a server-side key:
+1. Open the web interface
+2. Click ⚙️ Settings (top-right)
+3. Enter your API key there
+4. It will be stored in your browser only
+
+
+Questions? See LLM_SETUP_GUIDE.md for detailed instructions.
