@@ -32,15 +32,20 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 
-# Python (if you add any Python tools)
+# Python Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Python Cache and Compiled Files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-venv/
-env/
-ENV/
+*.pyc
 
 # Backtest Screenshots (optional - comment out if you want to track these)
 # docs/backtests/*.png

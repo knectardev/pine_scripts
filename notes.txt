@@ -1,0 +1,56 @@
+➕ 1. Intent (single-select or short text)
+
+This is more important than another metric.
+
+Examples:
+
+Mean reversion
+
+Trend continuation
+
+Regime filter
+
+Veto / confirmation
+
+Experimental
+
+This lets you later answer questions like:
+
+“Show me all mean-reversion strategies”
+“Which scripts are veto-only?”
+
+This field pays dividends fast.
+
+➕ 2. Assumptions (short text / bullets)
+
+This is not notes — it’s more specific.
+
+Examples:
+
+“RTH only (09:30–16:00 ET)”
+
+“Requires overnight session”
+
+“Fails on trend days”
+
+“Designed for ES 5m”
+
+This is where future-you avoids re-learning hard lessons.
+
+➕ 3. Confidence / Maturity (enum)
+
+Something like:
+
+Draft
+
+Paper-only
+
+Validated
+
+Retired
+
+You already have Status, but status is operational; this is epistemic.
+
+It answers:
+
+“How much do I trust this idea?”

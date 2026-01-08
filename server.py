@@ -233,11 +233,11 @@ def restore_backup(filename):
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("🚀 Pine Script Library API Server")
+    print("Pine Script Library API Server")
     print("=" * 60)
-    print("📍 Server running at: http://localhost:5000")
-    print("🌐 Open web interface: http://localhost:5000")
-    print("📊 API Endpoints:")
+    print("Server running at: http://localhost:5000")
+    print("Open web interface: http://localhost:5000")
+    print("API Endpoints:")
     print("   GET    /api/scripts          - List all scripts")
     print("   GET    /api/scripts/:id      - Get single script")
     print("   POST   /api/scripts          - Create new script")

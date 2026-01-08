@@ -37,45 +37,73 @@ pine_scripts/
 
 ## 🚀 Getting Started
 
-### 1. Clone or Initialize Repository
+### 1. Set Up Virtual Environment (Recommended)
+
+Create and activate a virtual environment to isolate project dependencies:
+
 ```bash
-git init
+# Create virtual environment
+python -m venv venv
+
+# Activate it:
+# Windows PowerShell:
+.\venv\Scripts\Activate.ps1
+
+# Windows CMD:
+venv\Scripts\activate.bat
+
+# macOS/Linux:
+source venv/bin/activate
+
+# You should see (venv) in your terminal prompt
 ```
 
-### 2. View the Web Interface
-Simply open `web/index.html` in your web browser:
+### 2. Install Dependencies
+
+Install the required Python packages (with virtual environment activated):
+
 ```bash
-# Windows
-start web/index.html
-
-# macOS
-open web/index.html
-
-# Linux
-xdg-open web/index.html
+pip install -r requirements.txt
 ```
 
-Or use a local server (recommended):
+### 3. Start the Flask Server
+
+Make sure your virtual environment is activated, then start the server:
+
 ```bash
-# Python 3
-python -m http.server 8000
-
-# Node.js (with http-server)
-npx http-server -p 8000
-
-# Then navigate to: http://localhost:8000/web/
+# Make sure (venv) is shown in your prompt, then:
+python server.py
 ```
 
-### 3. Add Your Pine Scripts
+The server will start at `http://localhost:5000` and you'll see:
+```
+🚀 Pine Script Library API Server
+📍 Server running at: http://localhost:5000
+🌐 Open web interface: http://localhost:5000
+```
 
-1. Save your Pine Script files in the appropriate directory:
+### 4. Open the Web Interface
+
+Navigate to `http://localhost:5000` in your web browser. The interface will automatically load your scripts and provide full Create, Read, Update, Delete functionality.
+
+### 5. Managing Your Pine Scripts
+
+You can now manage your scripts in two ways:
+
+#### Option A: Using the Web Interface (Recommended)
+1. Click "**+ Create New Script**" to add a new script
+2. Fill in the form with script details and backtest metrics
+3. Click "**Edit**" on any script to update its information
+4. Click "**Delete**" to remove a script (with confirmation)
+5. All changes are automatically saved to `data/scripts.json` with backups
+
+#### Option B: Manual JSON Editing
+1. Save Pine Script files in the appropriate directory:
    - Indicators → `scripts/indicators/`
    - Strategies → `scripts/strategies/`
    - Studies → `scripts/studies/`
-
-2. Add metadata to `data/scripts.json` (see schema below)
-
-3. Refresh the web interface to see your new scripts
+2. Add metadata entries to `data/scripts.json` (see schema below)
+3. Refresh the web interface to see your changes
 
 ## 📊 JSON Schema
 
@@ -140,11 +168,36 @@ The `data/scripts.json` file stores all metadata about your scripts. Here's the 
 - Total Trades
 - Last Modified Date
 
-### Actions
-- **View**: See full details in a modal popup
-- **Copy Path**: Copy file path to clipboard
+### CRUD Operations
+- **Create**: Click "+ Create New Script" to add new entries
+- **Read**: Click "View" to see full details in a modal popup
+- **Update**: Click "Edit" to modify script information
+- **Delete**: Click "Delete" to remove scripts (with confirmation)
+
+### Additional Features
+- **Automatic Backups**: Every save creates a timestamped backup in `data/backups/`
+- **Validation**: Required fields are enforced
+- **Notifications**: Visual feedback for all operations
+- **Responsive Design**: Works on desktop, tablet, and mobile
 
 ## 🔧 Adding a New Script
+
+### Method 1: Using the Web Interface (Easiest)
+
+1. Click "**+ Create New Script**" button
+2. Fill in the required fields:
+   - Name (required)
+   - Type: Indicator, Strategy, or Study (required)
+   - Version (required, defaults to 1.0.0)
+   - File Path (required, e.g., `scripts/indicators/my-script.pine`)
+3. Add optional details:
+   - Description, author, tags, timeframes
+   - Backtest metrics (for strategies)
+4. Click "**Save Script**"
+
+The script will be automatically added to `data/scripts.json` with timestamps and a backup will be created.
+
+### Method 2: Manual JSON Entry
 
 ### Step 1: Create the Pine Script
 Create your script file in the appropriate folder:
@@ -153,7 +206,7 @@ scripts/strategies/my-strategy.pine
 ```
 
 ### Step 2: Add Metadata Entry
-Add an entry to `data/scripts.json`:
+Add an entry to `data/scripts.json` or use the web interface:
 
 ```json
 {
@@ -202,7 +255,46 @@ Add an entry to `data/scripts.json`:
 2. Copy the code
 3. Paste into TradingView Pine Editor
 4. Run backtest and record results
-5. Update the backtest object in `scripts.json`
+5. Click "Edit" in the web interface and add/update backtest metrics
+
+## 🔐 API Endpoints
+
+The Flask server provides a RESTful API:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/scripts` | List all scripts |
+| GET | `/api/scripts/:id` | Get single script |
+| POST | `/api/scripts` | Create new script |
+| PUT | `/api/scripts/:id` | Update script |
+| DELETE | `/api/scripts/:id` | Delete script |
+| GET | `/api/backups` | List available backups |
+| POST | `/api/backups/:file` | Restore from backup |
+
+### Example API Usage
+
+```bash
+# Get all scripts
+curl http://localhost:5000/api/scripts
+
+# Create a new script
+curl -X POST http://localhost:5000/api/scripts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Strategy",
+    "type": "strategy",
+    "version": "1.0.0",
+    "filePath": "scripts/strategies/my-strategy.pine"
+  }'
+
+# Update a script
+curl -X PUT http://localhost:5000/api/scripts/my-strategy-id \
+  -H "Content-Type: application/json" \
+  -d '{"version": "1.1.0"}'
+
+# Delete a script
+curl -X DELETE http://localhost:5000/api/scripts/my-strategy-id
+```
 
 ## 📝 Pine Script Best Practices
 
@@ -280,14 +372,38 @@ The web interface supports:
    - Average: 0.5-1.0
    - Poor: <0.5
 
+## 💾 Backups & Data Safety
+
+### Automatic Backups
+- Every save operation creates a timestamped backup in `data/backups/`
+- The system keeps the last 10 backups automatically
+- Backups are named: `scripts_YYYYMMDD_HHMMSS.json`
+
+### Manual Backup
+```bash
+# Create a manual backup
+cp data/scripts.json data/scripts_backup_$(date +%Y%m%d).json
+```
+
+### Restore from Backup
+Use the API endpoint to restore:
+```bash
+curl -X POST http://localhost:5000/api/backups/scripts_20260108_120000.json
+```
+
+Or manually copy:
+```bash
+cp data/backups/scripts_20260108_120000.json data/scripts.json
+```
+
 ## 🛠️ Customization
 
 ### Adding New Metadata Fields
 
 1. Update `data/schema.json` with the new field
-2. Add the field to your script entries in `data/scripts.json`
-3. Modify `web/js/app.js` to display the field
-4. Update `web/index.html` if adding a new column
+2. Update the form in `web/index.html` (edit modal)
+3. Modify `web/js/app.js` to handle the new field
+4. Update the table in `web/index.html` if adding a new column
 
 ### Styling
 
@@ -300,6 +416,24 @@ All styles are in `web/css/styles.css`. The design uses CSS custom properties (v
     --success-color: #4caf50;
     /* ... etc ... */
 }
+```
+
+## 🚀 Production Deployment
+
+For production use, consider using a production WSGI server:
+
+```bash
+# Install gunicorn
+pip install gunicorn
+
+# Run with gunicorn
+gunicorn -w 4 -b 0.0.0.0:5000 server:app
+```
+
+Or use Waitress (Windows-friendly):
+```bash
+pip install waitress
+waitress-serve --port=5000 server:app
 ```
 
 ## 🤝 Contributing
@@ -318,20 +452,32 @@ This project structure is free to use and modify for personal or commercial purp
 
 ## 🆘 Troubleshooting
 
-### Web Interface Not Loading Scripts
-- Check that `data/scripts.json` exists and is valid JSON
-- Use a local server instead of opening the HTML file directly
-- Check browser console for errors
+### Flask Server Won't Start
+- Make sure you've installed dependencies: `pip install -r requirements.txt`
+- Check that port 5000 is not already in use
+- Try a different port: `python server.py` (then edit server.py to change port)
 
-### Scripts Not Appearing
-- Verify the JSON entry is inside the "scripts" array
-- Check that all required fields are present
-- Validate JSON syntax
+### Web Interface Not Loading Scripts
+- Ensure the Flask server is running at `http://localhost:5000`
+- Check that `data/scripts.json` exists and is valid JSON
+- Check browser console for errors (F12)
+- Verify CORS is not blocking requests
+
+### "Cannot create/update/delete scripts"
+- Confirm Flask server is running
+- Check file permissions on `data/scripts.json`
+- Look at server console for error messages
+- Ensure `data/backups/` directory exists and is writable
+
+### Scripts Not Appearing After Creating
+- Check the server console for errors
+- Refresh the page (F5)
+- Verify the script was saved in `data/scripts.json`
 
 ### Backtest Data Not Showing
 - Ensure the script type is "strategy"
-- Verify the backtest object has the required fields
-- Check that numeric values are numbers, not strings
+- Verify numeric values are entered correctly (not text)
+- Check that backtest metrics are numbers, not strings
 
 ## 🎓 Resources
 
