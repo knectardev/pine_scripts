@@ -55,7 +55,7 @@
                     <span>Sort By:</span>
                     <select id="sortBy">
                         <option value="name">Name</option>
-                        <option value="dateModified">Last Modified</option>
+                        <option value="dateModified" selected>Last Modified</option>
                         <option value="winRate">Win Rate</option>
                         <option value="profitFactor">Profit Factor</option>
                         <option value="netProfitPercent">Net Profit %</option>
@@ -141,6 +141,9 @@
                 <div class="review-modal-header">
                     <h2>📋 Code Review Report</h2>
                     <div style="display: flex; gap: 10px;">
+                        <!-- CODE FIXING BUTTONS DISABLED - Focus on strategy analysis -->
+                        <!-- To re-enable: uncomment the buttons below -->
+                        <!--
                         <button class="btn btn-success" onclick="autoFixCode()" id="autoFixBtn" style="display: none;">
                             <span id="autoFixButtonText">🔧 Quick Fix</span>
                         </button>
@@ -149,6 +152,10 @@
                         </button>
                         <button class="btn btn-primary" onclick="autoFixAll()" id="autoFixAllBtn" style="display: none; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); font-weight: bold;">
                             <span id="autoFixAllButtonText">⚡ Auto-Fix All</span>
+                        </button>
+                        -->
+                        <button class="btn btn-secondary" onclick="copyReviewToClipboard()" id="copyReviewBtn" style="display: none;">
+                            <span id="copyReviewButtonText">📋 Copy Report</span>
                         </button>
                         <button class="btn btn-primary" onclick="exportReviewToPDF()" id="exportPdfBtn" style="display: none;">
                             <span id="exportButtonText">📄 Export PDF</span>

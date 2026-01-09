@@ -1,0 +1,54 @@
+//@version=5
+// =============================================================================
+// STRATEGY: Redone ES Fade
+// FILENAME: redone-es-fade_v1.0.1.pine
+// Version: v1.0.1
+// DATE:     2026-01-09
+// =============================================================================
+// CHANGE LOG:
+//   v1.0.1 - Adds a a 1-Minute Delay for the initial candle reads 
+//
+//   STRENGTHS: [To be documented]
+//   WEAKNESSES: [To be documented]
+// =============================================================================
+strategy("ES Alpha v4.9.1 (Logic Fix)", overlay=true, initial_capital=50000, default_qty_value=1, calc_on_every_tick=true)
+
+// ————— 1. Session Tracking
+is_new_day = ta.change(time("D")) 
+var float hi = na
+var float lo = na
+var bool range_locked = false
+var int trades_today = 0
+
+// Reset at start of day
+if is_new_day
+    hi := na
+    lo := na
+    range_locked := false
+    trades_today := 0
+
+// ————— 2. The "Lock" Logic
+// Capture high/low of the first 1-minute bar, then LOCK it.
+if not range_locked and not na(time(timeframe.period, "0930-0931"))
+    hi := high
+    lo := low
+    range_locked := true
+
+// ————— 3. Visual-First Entry
+// We only enter IF the range is locked AND price crosses the lines
+if range_locked and trades_today < 1
+    if high > hi
+        strategy.entry("Long", strategy.long, comment="Visual High Cross")
+        trades_today := 1
+    else if low < lo
+        strategy.entry("Short", strategy.short, comment="Visual Low Cross")
+        trades_today := 1
+
+// ————— 4. Exits & Visuals
+if strategy.position_size > 0
+    strategy.exit("Exit", limit=strategy.position_avg_price + 20, stop=lo) 
+if strategy.position_size < 0
+    strategy.exit("Exit", limit=strategy.position_avg_price - 20, stop=hi)
+
+plot(hi, "Trigger High", color=color.new(color.lime, 0), style=plot.style_linebr, linewidth=2)
+plot(lo, "Trigger Low", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)

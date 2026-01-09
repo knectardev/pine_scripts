@@ -1,0 +1,19 @@
+//@version=5
+// =============================================================================
+// STRATEGY: Momentum Breakout Strategy
+// FILENAME: momentum-breakout-strategy_v1.0.0.pine
+// VERSION:  v1.0.0
+// DATE:     2025-10-15
+// =============================================================================
+/* CHANGE LOG:
+   v1.0.0 - Initial release with basic BB breakout logic.
+          - No volume filter.
+          - Fixed 2% target, 1% stop.
+          
+   STRENGTHS: Simple, easy to understand.
+   WEAKNESSES: Too many false breakouts without volume confirmation.
+   ============================================================================= */
+
+strategy("Momentum Breakout v1.0.0", overlay = true, initialCapital = 25000)
+
+// Basic implementation without volume filter

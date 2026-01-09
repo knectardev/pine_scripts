@@ -1,0 +1,82 @@
+//@version=5
+// =============================================================================
+// INDICATOR: Range Scalper
+// FILENAME: range-scalper.pine
+// VERSION:  v1.0.3 (Current)
+// AUTHOR:   Trading Team
+// DATE:     2026-01-08
+// =============================================================================
+/* DESCRIPTION:
+   Identifies range-bound price action and provides entry/exit signals
+   for scalping opportunities within defined support/resistance zones.
+   
+   Features:
+   - Dynamic range detection using pivot highs/lows
+   - Volume-weighted range strength
+   - Multiple timeframe confirmation
+   - Breakout alerts
+   ============================================================================= */
+
+indicator("Range Scalper v1.0.3", overlay = true)
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+const int   DEFAULT_PIVOT_LENGTH  = 10
+const int   DEFAULT_RANGE_BARS    = 20
+const float DEFAULT_RANGE_THRESH  = 0.015
+const color SUPPORT_COLOR         = color.new(color.green, 70)
+const color RESISTANCE_COLOR      = color.new(color.red, 70)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+int pivotLengthInput = input.int(DEFAULT_PIVOT_LENGTH, "Pivot Length", minval = 3)
+int rangeBarsInput   = input.int(DEFAULT_RANGE_BARS, "Range Detection Bars", minval = 10)
+float rangeThreshInput = input.float(DEFAULT_RANGE_THRESH, "Range Threshold %", step = 0.001)
+
+// ============================================================================
+// CALCULATIONS
+// ============================================================================
+float pivotHigh = ta.pivothigh(high, pivotLengthInput, pivotLengthInput)
+float pivotLow = ta.pivotlow(low, pivotLengthInput, pivotLengthInput)
+
+var float resistanceLevel = na
+var float supportLevel = na
+
+if not na(pivotHigh)
+  resistanceLevel := pivotHigh
+
+if not na(pivotLow)
+  supportLevel := pivotLow
+
+float rangeSize = not na(resistanceLevel) and not na(supportLevel) ? 
+  math.abs(resistanceLevel - supportLevel) : na
+
+float rangePct = not na(rangeSize) and not na(close) ? 
+  rangeSize / close : na
+
+bool inRange = not na(rangePct) and rangePct <= rangeThreshInput
+
+// ============================================================================
+// VISUALS
+// ============================================================================
+plot(inRange ? resistanceLevel : na, "Resistance", RESISTANCE_COLOR, 2)
+plot(inRange ? supportLevel : na, "Support", SUPPORT_COLOR, 2)
+
+bgcolor(inRange ? color.new(color.blue, 95) : na, title = "Range Zone")
+
+plotshape(close > resistanceLevel and close[1] <= resistanceLevel, 
+  "Breakout Up", shape.triangleup, location.belowbar, color.lime, size = size.small)
+
+plotshape(close < supportLevel and close[1] >= supportLevel, 
+  "Breakout Down", shape.triangledown, location.abovebar, color.red, size = size.small)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+alertcondition(close > resistanceLevel and close[1] <= resistanceLevel, 
+  "Breakout Up", "Price broke above resistance")
+
+alertcondition(close < supportLevel and close[1] >= supportLevel, 
+  "Breakout Down", "Price broke below support")

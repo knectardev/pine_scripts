@@ -1,1 +1,106 @@
-This is a sophisticated documentation ecosystem. It moves beyond simple "coding style" and addresses the structural and semantic risks unique to Pine Script (e.g., bar-state persistence, repainting, and broker-emulation discrepancies).The separation of a Quick Ref for workflow, a Manual for deep reasoning, and Standards for formatting is a professional-grade architecture.1. Structural StrengthsThe "Veto" on Ambiguity: Your standards for na handling and explicit variable initialization (avoiding var when simple assignment is safer) are excellent.Polarity Checks: The logic in the Quick Ref regarding Stop/Limit polarity is a frequent "silent killer" in retail scripts; having this as a top-tier check is a high-value move.Contextual Awareness: You distinguish between historical calculation and real-time execution, which is the primary source of "strategy leakage" (where backtests look better than reality).2. Recommended Additions (The "Gaps")While comprehensive, I see three areas where a "Quantitative Edge" script like the ES Fade might still be vulnerable based on these documents:A. The "Bar-Magnifier" Fallacy (Logic Check G1)In Pine Script, strategy.exit assumes the best-case scenario within a single bar unless "Bar Magnifier" is used.The Risk: If a 5-minute bar hits both your Stop Loss and Take Profit, Pine Script defaults to the "profitable" outcome.Recommendation: Add a standard requiring strategy.exit to be tested with the "High-Low" vs. "Close" execution logic toggle, or requiring a secondary validation script on a lower timeframe (e.g., 1m).B. The "request.security" Data Leakage (B4 Expansion)You mention lookahead, but there is a second risk: Data Alignment.The Risk: Pulling $TICK or $ADD can occasionally return na on the very first bar of the day or during holidays.Recommendation: Add a sanity check for Data Persistence: Ensure external security calls use a "fallback" or nz() to prevent the entire strategy logic from "freezing" when one data feed blips.C. Variable Persistence in "Loops"The Risk: If your ATR filter or $TICK count uses a for loop or a ta.sum inside a conditional, the state might not update as expected across bar closures.Recommendation: Add a "Memory Consistency" check—ensure that any function starting with ta. is called on every bar, not wrapped inside an if statement.3. Workflow Improvement SuggestionTo make the SANITY_CHECKS_QUICK_REF.md even more effective, consider a "Pre-Flight Label" standard:Standard 8.4: Every script must include a metadata block or a log output that explicitly prints the status of these checks (e.g., "ATR Filter: Active", "Slippage Penalty: 0.50pts"). This makes debugging screenshots significantly easier.Summary Table: Documentation AuditDocumentCurrent GradePrimary ValueSuggested PatchPINE_SCRIPT_STANDARDSAFormatting/PerformanceAdd ta. function scoping rules.SANITY_CHECKS_QUICK_REFA+Safety/PolarityAdd a check for "Bar Magnifier" logic.LOGICAL_SANITY_CHECKSADeep Logic/ReasoningExpand on request.security alignment.
+hat TradingView error almost always means: you ended a line in the middle of an expression, and Pine doesn’t allow implicit “line continuation” the way Python/JS do.
+
+In your snippet there are three separate problems:
+
+Leading indentation
+Pine is picky: if you indent a line without it being inside a block that expects indentation, you can get “end of line” weirdness. Your first line has a leading space.
+
+Breaking a boolean expression across lines without wrapping
+This is the big one. In Pine, if you want to split a long boolean across lines, you generally need to wrap the whole expression in parentheses (or keep it on one line).
+
+A typo from copy/paste corruption
+pivoerror$0tLowPrice is not a valid identifier. That alone will error (maybe not this specific message, but it’s definitely broken). It should presumably be pivotLowPrice.
+
+Fix (keep it strict: one-line-per-expression, plain ASCII)
+bool sufficientData = bar_index >= pivotLookbackInput * 2
+
+bool bullishRegular = sufficientData and not na(pivotLowPrice) and not na(lastPivotLow) and pivotLowPrice > lastPivotLow and rsiPivotLow < lastRsiPivotLow
+
+bool bearishRegular = sufficientData and not na(pivotHighPrice) and not na(lastPivotHigh)
+
+
+That will eliminate the “end of line without line continuation” class of error immediately.
+
+If you really want multi-line (safe version)
+bool bullishRegular = (
+     sufficientData
+ and not na(pivotLowPrice)
+ and not na(lastPivotLow)
+ and pivotLowPrice > lastPivotLow
+ and rsiPivotLow < lastRsiPivotLow
+)
+
+===============================================================================
+PINE SCRIPT VERSION POLICY - 2026-01-08
+===============================================================================
+
+CHANGE: Both Pine Script v5 and v6 are now fully accepted (no warnings for v5)
+
+CODE REVIEW:
+✅ v5: PASS (accepted)
+✅ v6: PASS (accepted)
+❌ Missing version: CRITICAL (must declare version)
+
+QUICKFIX:
+- No longer auto-upgrades v5 to v6
+- If version missing, adds //@version=5
+- Preserves existing v5 or v6 declarations
+
+===============================================================================
+CODE FIXING BUTTONS DISABLED - 2026-01-08
+===============================================================================
+
+USER REQUEST: "Disable all code fixing buttons - distracting from strategy analysis"
+
+CHANGES:
+- Quick Fix button: DISABLED (commented out in index.html line 147)
+- Smart Fix (LLM) button: DISABLED (commented out in index.html line 150)  
+- Auto-Fix All button: DISABLED (commented out in index.html line 153)
+
+STILL ENABLED:
+✅ Code Review button (informational only, doesn't modify code)
+✅ Edit button (manual editing)
+✅ Copy Code button
+✅ Export PDF button
+
+TO RE-ENABLE:
+Uncomment the button sections in web/index.html (lines 147-156)
+
+===============================================================================
+COPY REVIEW TO CLIPBOARD - 2026-01-08
+===============================================================================
+
+USER REQUEST: "Include a copy to clipboard of reported issues for LLM prompts"
+
+ADDED FEATURE:
+✅ "Copy Report" button added next to Export PDF
+✅ Formats review as clean text report
+✅ Perfect for pasting into LLM prompts for analysis
+
+REPORT FORMAT:
+- Script name and version
+- Summary counts (Critical, High, Warnings, Passed)
+- Detailed listing of all issues by severity
+- Line numbers and code snippets
+- Recommendations section
+
+USE CASE:
+Click "Copy Report" → Paste into ChatGPT/Claude → Get strategy analysis
+Perfect for discussing code quality with LLMs without manual formatting!
+
+===============================================================================
+GRID SORT ORDER - 2026-01-08
+===============================================================================
+
+USER REQUEST: "Update grid sort order to date descending (most recent on top)"
+
+CHANGES:
+✅ Default sort changed to "Last Modified" (descending)
+✅ Most recently modified scripts now appear at top of grid
+✅ Sort dropdown pre-selected to "Last Modified"
+✅ Sort order maintained after filtering/searching
+
+TECHNICAL:
+- index.html: Added "selected" attribute to dateModified option (line 58)
+- app.js: Added sortScripts() call in loadScripts() (line 18)
+- Sort function already existed with correct descending logic

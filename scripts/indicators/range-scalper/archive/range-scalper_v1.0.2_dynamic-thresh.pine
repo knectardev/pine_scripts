@@ -1,0 +1,19 @@
+//@version=5
+// =============================================================================
+// INDICATOR: Range Scalper
+// FILENAME: range-scalper_v1.0.2_dynamic-thresh.pine
+// VERSION:  v1.0.2
+// DATE:     2025-12-10
+// =============================================================================
+/* CHANGE LOG:
+   v1.0.2 - Added dynamic range threshold based on ATR.
+          - Improved range detection accuracy.
+          - Added breakout shape markers.
+          
+   STRENGTHS: Better adapts to volatility changes.
+   WEAKNESSES: Still needs volume confirmation for scalps.
+   ============================================================================= */
+
+indicator("Range Scalper v1.0.2", overlay = true)
+
+// ATR-based dynamic threshold implementation - simplified for archive

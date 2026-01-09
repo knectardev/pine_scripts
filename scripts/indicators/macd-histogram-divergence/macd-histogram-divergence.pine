@@ -1,0 +1,60 @@
+//@version=5
+// =============================================================================
+// INDICATOR: MACD Histogram Divergence
+// FILENAME: macd-histogram-divergence.pine
+// VERSION:  v1.0.0 (Current)
+// AUTHOR:   Trading Team
+// DATE:     2026-01-08
+// =============================================================================
+/* DESCRIPTION:
+   Sample indicator demonstrating the recommended folder structure.
+   Detects bullish and bearish divergences between price and MACD histogram.
+   
+   This is a DEMO/TEST file to illustrate the recommended folder structure.
+   ============================================================================= */
+
+indicator("MACD Histogram Divergence v1.0.0", overlay = false)
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+const int DEFAULT_FAST_LENGTH   = 12
+const int DEFAULT_SLOW_LENGTH   = 26
+const int DEFAULT_SIGNAL_LENGTH = 9
+const int DEFAULT_PIVOT_LENGTH  = 5
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+int fastLengthInput = input.int(DEFAULT_FAST_LENGTH, "Fast Length", minval = 1)
+int slowLengthInput = input.int(DEFAULT_SLOW_LENGTH, "Slow Length", minval = 1)
+int signalLengthInput = input.int(DEFAULT_SIGNAL_LENGTH, "Signal Length", minval = 1)
+int pivotLengthInput = input.int(DEFAULT_PIVOT_LENGTH, "Pivot Length", minval = 2)
+
+// ============================================================================
+// CALCULATIONS
+// ============================================================================
+[macdLine, signalLine, histogram] = ta.macd(close, fastLengthInput, slowLengthInput, signalLengthInput)
+
+float pricePivotHigh = ta.pivothigh(close, pivotLengthInput, pivotLengthInput)
+float pricePivotLow = ta.pivotlow(close, pivotLengthInput, pivotLengthInput)
+
+float histPivotHigh = ta.pivothigh(histogram, pivotLengthInput, pivotLengthInput)
+float histPivotLow = ta.pivotlow(histogram, pivotLengthInput, pivotLengthInput)
+
+// ============================================================================
+// VISUALS
+// ============================================================================
+hline(0, "Zero Line", color.gray)
+
+plot(macdLine, "MACD", color.blue, 2)
+plot(signalLine, "Signal", color.orange, 2)
+
+histColor = histogram >= 0 ? color.green : color.red
+plot(histogram, "Histogram", histColor, style = plot.style_histogram, linewidth = 3)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+alertcondition(not na(histPivotLow), "Bullish Divergence Check", "Potential bullish divergence")
+alertcondition(not na(histPivotHigh), "Bearish Divergence Check", "Potential bearish divergence")

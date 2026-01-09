@@ -1,0 +1,25 @@
+//@version=5
+// =============================================================================
+// STRATEGY: ES Professional Fade
+// FILENAME: es-professional-fade-strategy_v2.5.1.pine
+// VERSION:  v2.5.1
+// DATE:     2025-12-18
+// =============================================================================
+/* CHANGE LOG:
+   v2.5.1 - Fixed RTH close capture timing issue.
+          - Used math.ceil for Opening Range window precision.
+          - Improved session transition patches.
+          
+   STRENGTHS: More accurate OR boundaries.
+   WEAKNESSES: Still no execution friction modeling.
+   ============================================================================= */
+
+strategy(
+  "ES Professional Fade v2.5.1",
+  overlay = true,
+  initialCapital = 50000,
+  defaultQtyValue = 1,
+  commissionType = strategy.commission.cash_per_contract,
+  commissionValue = 2.01)
+
+// Session transition improvements - simplified version for archive

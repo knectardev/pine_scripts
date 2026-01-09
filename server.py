@@ -88,12 +88,79 @@ def save_scripts(data, create_backup=True):
 # ============================================================================
 
 def get_script_base_dir(file_path):
-    """Get base directory for script versions"""
-    # e.g., scripts/strategies/my-strategy.pine -> scripts/strategies/my-strategy/
+    """Get base directory for script versions - uses archive/ subdirectory
+    
+    IMPORTANT: This function normalizes ANY path back to the correct project archive folder.
+    It handles:
+    - Clean paths: scripts/indicators/my-indicator/my-indicator.pine
+    - Already archived: scripts/indicators/my-indicator/archive/my-indicator_v1.0.0.pine
+    - Deeply nested (BUG): scripts/indicators/my-indicator/archive/v1.0/archive/v1.1/v1.2.pine
+    
+    All return: scripts/indicators/my-indicator/archive
+    """
     path = Path(file_path)
-    base_name = path.stem  # filename without extension
-    version_dir = path.parent / base_name
-    return version_dir
+    parts = list(path.parts)
+    
+    # Extract project name from filename or path
+    project_name = get_project_name_from_path(file_path)
+    
+    # Find the project root by looking for the project name in the path
+    # OR finding the first 'archive' folder and going one level up
+    project_root_idx = None
+    
+    # Strategy 1: If 'archive' exists in path, project root is the folder before first 'archive'
+    if 'archive' in parts:
+        first_archive_idx = parts.index('archive')
+        if first_archive_idx > 0:
+            project_root_idx = first_archive_idx - 1
+    
+    # Strategy 2: Find folder matching project name
+    if project_root_idx is None:
+        for i, part in enumerate(parts):
+            if part == project_name:
+                project_root_idx = i
+                break
+    
+    # Strategy 3: If file is in flat structure (e.g., scripts/strategies/my-strategy.pine)
+    if project_root_idx is None:
+        # Parent directory is the category (strategies, indicators, etc.)
+        # We need to create project folder
+        project_root = path.parent / project_name
+    else:
+        # Reconstruct path up to project root
+        project_root = Path(*parts[:project_root_idx + 1])
+    
+    # Return the archive subdirectory
+    archive_dir = project_root / 'archive'
+    return archive_dir
+
+
+def get_project_name_from_path(file_path):
+    """Extract the project name from a file path for version naming"""
+    # e.g., scripts/strategies/my-strategy/my-strategy.pine -> "my-strategy"
+    # or scripts/strategies/my-strategy/archive/my-strategy_v1.0.0.pine -> "my-strategy"
+    path = Path(file_path)
+    
+    # If in archive folder, parent.parent is project folder
+    if 'archive' in path.parts:
+        # Find the project folder (before 'archive')
+        parts = list(path.parts)
+        archive_idx = parts.index('archive')
+        if archive_idx > 0:
+            return parts[archive_idx - 1]
+    
+    # If filename matches pattern: name.pine or name_vX.X.X.pine
+    stem = path.stem
+    if '_v' in stem:
+        # Remove version suffix: "my-strategy_v1.0.0" -> "my-strategy"
+        return stem.split('_v')[0]
+    
+    # Check if parent folder name matches stem (project structure)
+    if path.parent.name == stem:
+        return stem
+    
+    # Otherwise use the stem directly
+    return stem
 
 
 def ensure_version_directory(script):
@@ -133,8 +200,9 @@ def migrate_script_to_versioning(script):
     # Determine initial version
     initial_version = script.get('version', script.get('currentVersion', '1.0.0'))
     
-    # Create versioned file
-    version_file = version_dir / f"v{initial_version}.pine"
+    # Create versioned file with proper naming: project-name_vX.X.X.pine
+    project_name = get_project_name_from_path(file_path)
+    version_file = version_dir / f"{project_name}_v{initial_version}.pine"
     with open(version_file, 'w', encoding='utf-8') as f:
         f.write(current_code)
     
@@ -149,6 +217,7 @@ def migrate_script_to_versioning(script):
     }]
     
     script['currentVersion'] = initial_version
+    script['version'] = initial_version  # Keep top-level version in sync
     
     # Keep old filePath for backward compatibility, but point to version
     script['filePath'] = str(version_file)
@@ -171,8 +240,22 @@ def create_new_version(script, new_version, code, changelog, author='user'):
         if not version_dir:
             return False, None, "Could not create version directory"
         
-        # Create new version file
-        version_file = version_dir / f"v{new_version}.pine"
+        # Get metadata for header injection
+        project_name = get_project_name_from_path(script.get('filePath'))
+        version_file = version_dir / f"{project_name}_v{new_version}.pine"
+        
+        # Update/inject version metadata in code header
+        code = update_version_in_code(
+            code, 
+            new_version, 
+            script_name=script.get('name', 'Unknown Script'),
+            script_type=script.get('type', 'indicator').upper(),
+            filename=f"{project_name}_v{new_version}.pine",
+            changelog=changelog,
+            author=script.get('author', 'Your Name')
+        )
+        
+        # Create new version file with proper naming: project-name_vX.X.X.pine
         with open(version_file, 'w', encoding='utf-8') as f:
             f.write(code)
         
@@ -197,6 +280,7 @@ def create_new_version(script, new_version, code, changelog, author='user'):
         
         # Update current version
         script['currentVersion'] = new_version
+        script['version'] = new_version  # Keep top-level version in sync
         script['filePath'] = str(version_file)
         script['dateModified'] = new_version_info['dateCreated']
         
@@ -314,13 +398,15 @@ def create_script():
         version_dir = get_script_base_dir(file_path)
         version_dir.mkdir(parents=True, exist_ok=True)
         
-        # Create initial version file
-        version_file = version_dir / f"v{initial_version}.pine"
+        # Create initial version file with proper naming: project-name_vX.X.X.pine
+        project_name = get_project_name_from_path(file_path)
+        version_file = version_dir / f"{project_name}_v{initial_version}.pine"
         with open(version_file, 'w', encoding='utf-8') as f:
             f.write(initial_code)
         
         # Initialize version control
         new_script['currentVersion'] = initial_version
+        new_script['version'] = initial_version  # Keep top-level version in sync
         new_script['filePath'] = str(version_file)
         new_script['versions'] = [{
             'version': initial_version,
@@ -524,25 +610,57 @@ def get_script_code(script_id):
                 "versionInfo": version_info
             })
         else:
-            # Get current version
-            file_path = script.get('filePath')
-            if not file_path:
-                return jsonify({"error": "No file path specified for this script"}), 400
+            # Get current version - PRIORITIZE versioned file if it exists
+            current_version = script.get('currentVersion')
             
-            # Read the Pine Script file
-            if not os.path.exists(file_path):
-                return jsonify({"error": f"Script file not found at: {file_path}"}), 404
-            
-            with open(file_path, 'r', encoding='utf-8') as f:
-                code = f.read()
-            
-            return jsonify({
-                "id": script_id,
-                "name": script.get('name'),
-                "version": script.get('currentVersion'),
-                "filePath": file_path,
-                "code": code
-            })
+            if current_version and 'versions' in script and len(script.get('versions', [])) > 0:
+                # Use the versioned file (from version system)
+                code, error = get_version_code(script, current_version)
+                if not error:
+                    versions = script.get('versions', [])
+                    version_info = next((v for v in versions if v['version'] == current_version), None)
+                    return jsonify({
+                        "id": script_id,
+                        "name": script.get('name'),
+                        "version": current_version,
+                        "filePath": version_info.get('filePath') if version_info else None,
+                        "code": code,
+                        "versionInfo": version_info
+                    })
+                else:
+                    # Fall back to main file if versioned file not found
+                    file_path = script.get('filePath')
+                    if not file_path or not os.path.exists(file_path):
+                        return jsonify({"error": "Script file not found"}), 404
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        code = f.read()
+                    return jsonify({
+                        "id": script_id,
+                        "name": script.get('name'),
+                        "version": current_version,
+                        "filePath": file_path,
+                        "code": code
+                    })
+            else:
+                # No version system yet - use main file
+                file_path = script.get('filePath')
+                if not file_path:
+                    return jsonify({"error": "No file path specified for this script"}), 400
+                
+                # Read the Pine Script file
+                if not os.path.exists(file_path):
+                    return jsonify({"error": f"Script file not found at: {file_path}"}), 404
+                
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    code = f.read()
+                
+                return jsonify({
+                    "id": script_id,
+                    "name": script.get('name'),
+                    "version": script.get('currentVersion'),
+                    "filePath": file_path,
+                    "code": code
+                })
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -620,6 +738,7 @@ def restore_version(script_id, version):
             if version_info:
                 version_info['isActive'] = True
                 script['currentVersion'] = version
+                script['version'] = version  # Keep top-level version in sync
                 script['filePath'] = version_info['filePath']
                 script['dateModified'] = datetime.utcnow().isoformat() + 'Z'
             
@@ -692,20 +811,36 @@ def review_script_code(script_id):
                 return jsonify({"error": error}), 404
             script_name = f"{script.get('name', 'Unknown')} (v{version})"
         else:
-            # Get current version
-            file_path = script.get('filePath')
-            if not file_path:
-                return jsonify({"error": "No file path specified for this script"}), 400
+            # Get current version - PRIORITIZE versioned file if it exists
+            current_version = script.get('currentVersion')
             
-            # Read the Pine Script file
-            if not os.path.exists(file_path):
-                return jsonify({"error": f"Script file not found at: {file_path}"}), 404
-            
-            with open(file_path, 'r', encoding='utf-8') as f:
-                code = f.read()
-            
-            current_version = script.get('currentVersion', 'current')
-            script_name = f"{script.get('name', 'Unknown')} (v{current_version})"
+            if current_version and 'versions' in script and len(script.get('versions', [])) > 0:
+                # Use the versioned file (from version system)
+                code, error = get_version_code(script, current_version)
+                if not error:
+                    script_name = f"{script.get('name', 'Unknown')} (v{current_version})"
+                else:
+                    # Fall back to main file if versioned file not found
+                    file_path = script.get('filePath')
+                    if not file_path or not os.path.exists(file_path):
+                        return jsonify({"error": "Script file not found"}), 404
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        code = f.read()
+                    script_name = f"{script.get('name', 'Unknown')} (main file)"
+            else:
+                # No version system yet - use main file
+                file_path = script.get('filePath')
+                if not file_path:
+                    return jsonify({"error": "No file path specified for this script"}), 400
+                
+                # Read the Pine Script file
+                if not os.path.exists(file_path):
+                    return jsonify({"error": f"Script file not found at: {file_path}"}), 404
+                
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    code = f.read()
+                
+                script_name = f"{script.get('name', 'Unknown')} (main file)"
         
         # Perform code review
         review_results = perform_code_review(code, script_name)
@@ -733,47 +868,96 @@ def perform_code_review(code, script_name):
     # ============================================================================
     # 1. VERSION CHECK (CRITICAL)
     # ============================================================================
-    if '//@version=5' not in code:
+    # Check for version 5 or 6 (both are acceptable)
+    has_version_5 = '//@version=5' in code
+    has_version_6 = '//@version=6' in code
+    
+    if not has_version_5 and not has_version_6:
         issues.append({
             'category': 'Script Structure',
             'check': 'Pine Script Version',
             'severity': 'CRITICAL',
-            'message': 'Script must use //@version=5 declaration',
+            'message': 'Script must use //@version=5 or //@version=6 declaration',
             'line': 1
         })
-    else:
+    elif has_version_5:
         issues.append({
             'category': 'Script Structure',
             'check': 'Pine Script Version',
             'severity': 'PASS',
             'message': 'Using Pine Script v5 ✓'
         })
+    else:  # has_version_6
+        issues.append({
+            'category': 'Script Structure',
+            'check': 'Pine Script Version',
+            'severity': 'PASS',
+            'message': 'Using Pine Script v6 ✓'
+        })
     
     # ============================================================================
     # 2. NAMING CONVENTIONS CHECK
     # ============================================================================
     
+    # Track multi-line comment blocks
+    in_multiline_comment = False
+    
     # Check for snake_case variables (should be camelCase)
-    snake_case_pattern = re.compile(r'\b([a-z]+_[a-z_]+)\s*=')
+    # Pattern: snake_case followed by = (but not ==, !=, <=, >=)
+    # This should match variable assignments like: my_var = value
+    snake_case_pattern = re.compile(r'\b([a-z]+_[a-z_]+)\s*=(?!=|<|>)')
+    
     for i, line in enumerate(lines, 1):
-        if '=' in line and not line.strip().startswith('//'):
+        stripped = line.strip()
+        
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            continue
+        
+        # Skip comments
+        if '=' in line and not stripped.startswith('//') and not in_multiline_comment:
             matches = snake_case_pattern.findall(line)
             for match in matches:
                 # Skip if it's a constant (all caps)
-                if not match.isupper():
-                    issues.append({
-                        'category': 'Naming Conventions',
-                        'check': 'camelCase Variables',
-                        'severity': 'HIGH',
-                        'message': f'Variable "{match}" uses snake_case. Should use camelCase (e.g., "{to_camel_case(match)}")',
-                        'line': i,
-                        'code': line.strip()
-                    })
+                if match.isupper():
+                    continue
+                
+                # Skip function parameters (they appear after opening paren or comma within parens)
+                # Check if this is inside a function call by looking for context
+                # Pattern: word_name = appears after ( or , and before ) - this is a function parameter
+                if re.search(r'[(,]\s*[^)]*\b' + re.escape(match) + r'\s*=', line):
+                    continue  # This is a function parameter like strategy(..., initial_capital=50000)
+                
+                # This is a real variable assignment
+                issues.append({
+                    'category': 'Naming Conventions',
+                    'check': 'camelCase Variables',
+                    'severity': 'HIGH',
+                    'message': f'Variable "{match}" uses snake_case. Should use camelCase (e.g., "{to_camel_case(match)}")',
+                    'line': i,
+                    'code': line.strip()
+                })
+    
+    # Reset comment tracking
+    in_multiline_comment = False
     
     # Check for constants without SNAKE_CASE
     const_pattern = re.compile(r'(?:const|^)\s+(?:int|float|bool|string|color)\s+([a-z][a-zA-Z0-9]*)\s*=')
     for i, line in enumerate(lines, 1):
-        if 'const' in line or (line.strip() and not line.strip().startswith('//')):
+        stripped = line.strip()
+        
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            continue
+        
+        # Skip comments
+        if ('const' in line or (stripped and not stripped.startswith('//'))) and not in_multiline_comment:
             matches = const_pattern.findall(line)
             for match in matches:
                 if match.islower() and 'input' not in match.lower():
@@ -786,55 +970,486 @@ def perform_code_review(code, script_name):
                         'code': line.strip()
                     })
     
+    # Reset comment tracking
+    in_multiline_comment = False
+    
+    # Check for input variables without Input suffix
+    input_pattern = re.compile(r'(\w+)\s*=\s*input\.(bool|int|float|string|color|time|timeframe|source|session)')
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            continue
+        
+        # Skip comments
+        if not stripped.startswith('//') and not in_multiline_comment:
+            matches = input_pattern.findall(line)
+            for var_name, input_type in matches:
+                # Check if variable name ends with Input suffix
+                if not var_name.endswith('Input'):
+                    suggested_name = var_name + 'Input'
+                    issues.append({
+                        'category': 'Naming Conventions',
+                        'check': 'Input Suffix',
+                        'severity': 'HIGH',
+                        'message': f'Input variable "{var_name}" should have "Input" suffix (e.g., "{suggested_name}")',
+                        'line': i,
+                        'code': line.strip(),
+                        'quickfix': {
+                            'type': 'rename_input_variable',
+                            'old_name': var_name,
+                            'new_name': suggested_name
+                        }
+                    })
+    
     # ============================================================================
     # 3. FORMATTING CHECKS
     # ============================================================================
     
+    # Track multi-line comment blocks to skip them
+    in_multiline_comment = False
+    
     # Check for operators without spaces
-    operator_pattern = re.compile(r'[a-zA-Z0-9_]\s*[+\-*/]=\s*[a-zA-Z0-9_]')
     for i, line in enumerate(lines, 1):
-        if not line.strip().startswith('//'):
-            # Check for missing spaces around operators
-            if re.search(r'[a-zA-Z0-9_][+\-*/=<>!]+[a-zA-Z0-9_]', line):
-                if '://' not in line and '==' not in line and '>=' not in line and '<=' not in line and '!=' not in line:
+        stripped = line.strip()
+        
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            continue  # Skip the closing line too
+        
+        # Skip single-line comments and multi-line comment blocks
+        if not stripped.startswith('//') and not in_multiline_comment:
+            # Remove string literals to avoid false positives
+            # This prevents matching operators inside strings like "2025-10-01" or "America/New_York"
+            line_without_strings = re.sub(r'"[^"]*"', '""', line)
+            line_without_strings = re.sub(r"'[^']*'", "''", line_without_strings)
+            
+            # Check for missing spaces around operators (but not in strings)
+            # Pattern: alphanumeric directly touching operator directly touching alphanumeric
+            if re.search(r'[a-zA-Z0-9_][+\-*/=<>!]+[a-zA-Z0-9_]', line_without_strings):
+                # Exclude valid cases
+                if '://' not in line_without_strings and '==' not in line_without_strings and '>=' not in line_without_strings and '<=' not in line_without_strings and '!=' not in line_without_strings:
+                    # Additional check: skip lines with function parameters (those should not have spaces)
+                    # Function parameters come after ( or ,
+                    # Example: input.float(0.20, step=0.05) is correct
+                    if not re.search(r'[,(]\s*\w+=[^=]', line_without_strings):
+                        issues.append({
+                            'category': 'Formatting',
+                            'check': 'Operator Spacing',
+                            'severity': 'WARNING',
+                            'message': 'Missing spaces around operators. Use spaces for readability (e.g., "a = b + c")',
+                            'line': i,
+                            'code': line.strip()[:60]
+                        })
+    
+    # ============================================================================
+    # 4. PINE SCRIPT SYNTAX CHECKS
+    # ============================================================================
+    
+    # Reset comment tracking
+    in_multiline_comment = False
+    
+    # Check for ternary operators split across lines without proper indentation
+    # When a line ends with ?, the next line MUST be indented (at least 1 space)
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            continue
+        
+        # Skip comments
+        if stripped.startswith('//') or in_multiline_comment:
+            continue
+        
+        # Check if line ends with an operator that requires continuation indentation
+        # Pine Script requires indentation for line continuation with ANY operator
+        continuation_operators = [
+            '?',      # Ternary operator
+            'and',    # Logical AND
+            'or',     # Logical OR
+            '+',      # Addition
+            '-',      # Subtraction (but not negative numbers)
+            '*',      # Multiplication
+            '/',      # Division
+            '==',     # Equality
+            '!=',     # Not equal
+            '>',      # Greater than
+            '<',      # Less than
+            '>=',     # Greater or equal
+            '<=',     # Less or equal
+        ]
+        
+        # Special case: lines ending with : that are part of ternary
+        is_continuation_line = False
+        
+        # Check for operators at end of line
+        for op in continuation_operators:
+            if stripped.endswith(op):
+                is_continuation_line = True
+                break
+        
+        # Special case: line has ? and ends with :
+        if not is_continuation_line and stripped.endswith(':') and '?' in stripped:
+            is_continuation_line = True
+        
+        if is_continuation_line:
+            # Find the next non-empty, non-comment line
+            next_idx = i + 1
+            while next_idx < len(lines):
+                next_line = lines[next_idx]
+                next_stripped = next_line.strip()
+                
+                # Skip empty lines and comments
+                if not next_stripped or next_stripped.startswith('//'):
+                    next_idx += 1
+                    continue
+                
+                # Found the continuation line - check indentation
+                current_indent = len(line) - len(line.lstrip())
+                next_indent = len(next_line) - len(next_line.lstrip())
+                
+                # Pine Script requires continuation line to be indented
+                # (at least 1 space more than the line with operator)
+                if next_indent <= current_indent:
+                    # Determine which operator the line ends with
+                    ending_operator = '?'
+                    for op in continuation_operators:
+                        if stripped.endswith(op):
+                            ending_operator = op
+                            break
+                    if stripped.endswith(':') and '?' in stripped:
+                        ending_operator = ':'
+                    
                     issues.append({
-                        'category': 'Formatting',
-                        'check': 'Operator Spacing',
-                        'severity': 'WARNING',
-                        'message': 'Missing spaces around operators. Use spaces for readability (e.g., "a = b + c")',
-                        'line': i,
-                        'code': line.strip()[:60]
+                        'category': 'Syntax',
+                        'check': 'Operator Line Continuation',
+                        'severity': 'CRITICAL',
+                        'message': f'Line continuation requires indentation. Line {i+1} ends with "{ending_operator}" but line {next_idx+1} is not indented. Add at least 1 space (preferably 4) to indent the continuation line.',
+                        'line': i + 1,
+                        'code': stripped[:80],
+                        'quickfix': {
+                            'type': 'indent_operator_continuation',
+                            'operator_line': i,
+                            'continuation_line': next_idx,
+                            'current_indent': next_indent,
+                            'required_indent': current_indent + 4  # Use 4 spaces (standard Pine Script)
+                        }
                     })
+                break
+    
+    # Reset comment tracking
+    in_multiline_comment = False
+    
+    # Check for multi-line if statements without proper indentation or body
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            continue
+        
+        # Skip comments
+        if stripped.startswith('//') or in_multiline_comment:
+            continue
+        
+        # Check for if statements without a body on the same line
+        if re.match(r'^(\s*)(if|else\s+if)\s+.+$', line) and not '=>' in line:
+            # This is a multi-line if statement
+            # Check if next line is properly indented
+            if i < len(lines):
+                next_line = lines[i] if i < len(lines) else ""
+                next_stripped = next_line.strip()
+                
+                # Skip empty lines and comments
+                next_idx = i
+                while next_idx < len(lines) and (not next_stripped or next_stripped.startswith('//')):
+                    next_idx += 1
+                    if next_idx < len(lines):
+                        next_line = lines[next_idx]
+                        next_stripped = next_line.strip()
+                    else:
+                        break
+                
+                # Check if next non-empty, non-comment line exists and is properly indented
+                if next_stripped and next_idx < len(lines):
+                    current_indent = len(line) - len(line.lstrip())
+                    next_indent = len(next_line) - len(next_line.lstrip())
+                    
+                    # Pine Script requires EXACTLY 4 spaces of indentation (or multiples for nested blocks)
+                    # The body must be indented 4 more spaces than the if statement
+                    expected_indent = current_indent + 4
+                    
+                    # Check if it's not a new control statement at same or less indent
+                    is_new_statement = re.match(r'^(if|else|var|const|for|while|float|int|bool|string)\s+', next_stripped)
+                    
+                    # If next line is not indented by exactly 4 spaces (or is a new statement), it's an error
+                    if not is_new_statement and next_indent != expected_indent:
+                        if next_indent <= current_indent:
+                            # No indentation at all
+                            message = f'Multi-line if statement body must be indented with 4 spaces. Line "{next_stripped[:40]}" has no indentation'
+                        elif next_indent < expected_indent:
+                            # Some indentation but not enough
+                            spaces_short = expected_indent - next_indent
+                            message = f'Multi-line if statement body needs {expected_indent} spaces total (currently has {next_indent}). Add {spaces_short} more space(s)'
+                        else:
+                            # Too much indentation (not a multiple of 4)
+                            message = f'Multi-line if statement body has incorrect indentation ({next_indent} spaces). Should be {expected_indent} spaces'
+                        
+                        issues.append({
+                            'category': 'Syntax',
+                            'check': 'Multi-line If Statement',
+                            'severity': 'CRITICAL',
+                            'message': message,
+                            'line': i,
+                            'code': line.strip(),
+                            'quickfix': {
+                                'type': 'indent_if_body',
+                                'if_line': i,
+                                'body_start_line': next_idx + 1,
+                                'expected_indent': expected_indent,
+                                'current_indent': next_indent
+                            }
+                        })
     
     # ============================================================================
-    # 4. PERFORMANCE CHECKS (ta.* function scoping)
+    # 5. TYPE MISMATCH CHECKS
     # ============================================================================
     
-    # Check for ta.* functions inside if blocks
-    ta_func_pattern = re.compile(r'ta\.\w+\(')
-    in_if_block = False
-    indent_level = 0
+    # Common type mismatches where declared type doesn't match function return type
+    type_mismatch_patterns = {
+        # ta.change() returns int, not bool
+        r'(const\s+)?bool\s+(\w+)\s*=\s*ta\.change\(': {
+            'declared_type': 'bool',
+            'actual_type': 'int',
+            'function': 'ta.change()',
+            'fix_type': 'change_type_to_int',
+            'message': 'ta.change() returns "series int", not "bool". Either declare as "int" or add "!= 0" for boolean comparison'
+        },
+        # na() returns bool, but assigned to int/float
+        r'(const\s+)?(int|float)\s+(\w+)\s*=\s*na\(': {
+            'declared_type': 'int/float',
+            'actual_type': 'bool',
+            'function': 'na()',
+            'fix_type': 'change_type_to_bool',
+            'message': 'na() returns "bool", not "int" or "float". Declare as "bool"'
+        },
+        # ta.crossover/crossunder return bool, not int/float
+        r'(const\s+)?(int|float)\s+(\w+)\s*=\s*ta\.cross(?:over|under)\(': {
+            'declared_type': 'int/float',
+            'actual_type': 'bool',
+            'function': 'ta.crossover()/ta.crossunder()',
+            'fix_type': 'change_type_to_bool',
+            'message': 'ta.crossover()/ta.crossunder() returns "bool", not "int" or "float". Declare as "bool"'
+        },
+        # ta.pivothigh/pivotlow return float, not bool
+        r'(const\s+)?bool\s+(\w+)\s*=\s*ta\.pivot(?:high|low)\(': {
+            'declared_type': 'bool',
+            'actual_type': 'float',
+            'function': 'ta.pivothigh()/ta.pivotlow()',
+            'fix_type': 'change_type_to_float',
+            'message': 'ta.pivothigh()/ta.pivotlow() returns "series float", not "bool". Declare as "float"'
+        },
+        # ta.barssince returns int, not bool
+        r'(const\s+)?bool\s+(\w+)\s*=\s*ta\.barssince\(': {
+            'declared_type': 'bool',
+            'actual_type': 'int',
+            'function': 'ta.barssince()',
+            'fix_type': 'change_type_to_int',
+            'message': 'ta.barssince() returns "series int", not "bool". Declare as "int"'
+        },
+    }
+    
+    # Reset comment tracking
+    in_multiline_comment = False
     
     for i, line in enumerate(lines, 1):
         stripped = line.strip()
         
-        # Track if blocks
-        if stripped.startswith('if '):
-            in_if_block = True
-            indent_level = len(line) - len(line.lstrip())
-        elif in_if_block and len(line) - len(line.lstrip()) <= indent_level and stripped and not stripped.startswith('//'):
-            in_if_block = False
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            continue
         
-        # Check for ta.* inside if blocks
-        if in_if_block and ta_func_pattern.search(stripped):
-            issues.append({
-                'category': 'Performance',
-                'check': 'ta.* Function Scoping (B8)',
-                'severity': 'CRITICAL',
-                'message': 'ta.* functions must be called unconditionally at global scope, not inside if blocks. This breaks internal state.',
-                'line': i,
-                'code': line.strip()[:80]
-            })
+        # Skip comments
+        if stripped.startswith('//') or in_multiline_comment:
+            continue
+        
+        # Check for type mismatches
+        for pattern, mismatch_info in type_mismatch_patterns.items():
+            match = re.search(pattern, line)
+            if match:
+                issues.append({
+                    'category': 'Type Mismatch',
+                    'check': 'Variable Type Declaration',
+                    'severity': 'CRITICAL',
+                    'message': mismatch_info['message'],
+                    'line': i,
+                    'code': line.strip(),
+                    'quickfix': {
+                        'type': mismatch_info['fix_type'],
+                        'function': mismatch_info['function']
+                    }
+                })
+    
+    # ============================================================================
+    # 5B. INT/FLOAT IN BOOLEAN CONTEXT
+    # ============================================================================
+    
+    # Track int/float variable declarations
+    int_float_vars = {}  # Maps variable name -> (type, line)
+    
+    # First pass: collect int/float variable declarations
+    in_multiline_comment = False
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            continue
+        
+        # Skip comments
+        if stripped.startswith('//') or in_multiline_comment:
+            continue
+        
+        # Match variable declarations: int varName = ... or float varName = ...
+        int_float_pattern = re.compile(r'\b(int|float)\s+(\w+)\s*=')
+        match = int_float_pattern.search(line)
+        if match:
+            var_type = match.group(1)
+            var_name = match.group(2)
+            int_float_vars[var_name] = (var_type, i)
+    
+    # Second pass: check for int/float vars used in boolean contexts
+    in_multiline_comment = False
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            continue
+        
+        # Skip comments
+        if stripped.startswith('//') or in_multiline_comment:
+            continue
+        
+        # Check for int/float variables used in boolean contexts
+        # Pattern 1: if varName (should be: if varName != 0)
+        # Pattern 2: if ... or varName (should be: if ... or varName != 0)
+        # Pattern 3: if ... and varName (should be: if ... and varName != 0)
+        
+        if re.match(r'^\s*(if|while)\s+', line):
+            # This is an if/while statement
+            # Extract the condition part (everything after if/while until newline or comment)
+            condition_match = re.match(r'^\s*(?:if|while)\s+(.+?)(?://|$)', line)
+            if condition_match:
+                condition = condition_match.group(1).strip()
+                
+                # Check each int/float var to see if it's used directly in condition
+                for var_name, (var_type, decl_line) in int_float_vars.items():
+                    # Pattern: varName followed by word boundary (not followed by comparison operator)
+                    # Positive cases: "if varName", "if x or varName", "if varName and y"
+                    # Negative cases (OK): "if varName != 0", "if varName > 5"
+                    
+                    # Check if variable appears in condition
+                    if re.search(r'\b' + re.escape(var_name) + r'\b', condition):
+                        # Check if it's followed by a comparison operator (OK)
+                        # Pattern: varName NOT followed by !=, ==, >, <, >=, <=
+                        if not re.search(r'\b' + re.escape(var_name) + r'\s*(?:!=|==|>=|<=|>|<)', condition):
+                            # It's being used directly in boolean context
+                            issues.append({
+                                'category': 'Type Mismatch',
+                                'check': 'Int/Float in Boolean Context',
+                                'severity': 'CRITICAL',
+                                'message': f'Variable "{var_name}" ({var_type}) used in boolean context. Add explicit comparison (e.g., "{var_name} != 0" or "{var_name} > 0")',
+                                'line': i,
+                                'code': stripped[:80],
+                                'quickfix': {
+                                    'type': 'add_explicit_comparison',
+                                    'variable': var_name,
+                                    'suggestion': f'{var_name} != 0'
+                                }
+                            })
+                            break  # Only report once per line
+    
+    # ============================================================================
+    # 6. PERFORMANCE CHECKS (ta.* function scoping)
+    # ============================================================================
+    
+    # Reset and track multi-line comment blocks
+    in_multiline_comment = False
+    
+    # Check for ta.* functions inside if blocks
+    # NOTE: This check is for ta.* calls in the BODY of if/for/while blocks
+    # Global-scope variable declarations with ta.* are OK
+    ta_func_pattern = re.compile(r'ta\.\w+\(')
+    if_block_stack = []  # Stack of (indent_level, line_number, expected_body_indent)
+    
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            continue
+        
+        # Skip comments and empty lines
+        if stripped.startswith('//') or in_multiline_comment or not stripped:
+            continue
+        
+        current_indent = len(line) - len(line.lstrip())
+        
+        # Pop from stack when we're back at or below the if statement's indent level
+        # This means we've exited the if block body
+        while if_block_stack and current_indent <= if_block_stack[-1][0]:
+            if_block_stack.pop()
+        
+        # Track if/for/while blocks
+        if re.match(r'^(if|for|while)\s+', stripped):
+            # Push this control statement's indent and expected body indent
+            expected_body_indent = current_indent + 4
+            if_block_stack.append((current_indent, i, expected_body_indent))
+            continue  # Don't check the if line itself
+        
+        # Check for ta.* ONLY if we're currently inside an if block body
+        # AND the current line is indented more than the if statement
+        if len(if_block_stack) > 0:
+            if_indent, if_line, expected_body_indent = if_block_stack[-1]
+            
+            # Only flag if this line is indented MORE than the if statement
+            # (i.e., it's in the body of the if block)
+            if current_indent > if_indent and ta_func_pattern.search(stripped):
+                issues.append({
+                    'category': 'Performance',
+                    'check': 'ta.* Function Scoping (B8)',
+                    'severity': 'CRITICAL',
+                    'message': f'ta.* functions must be called unconditionally at global scope, not inside if/for/while blocks (control block starts at line {if_line}). This breaks internal state.',
+                    'line': i,
+                    'code': line.strip()[:80]
+                })
     
     # ============================================================================
     # 5. LOGICAL SANITY CHECKS
@@ -942,6 +1557,133 @@ def perform_code_review(code, script_name):
             })
     
     # ============================================================================
+    # 5A. PINE SCRIPT INDENTATION CHECKS
+    # ============================================================================
+    
+    # Check for if statements without proper indentation
+    for i in range(len(lines) - 1):
+        line = lines[i]
+        stripped = line.strip()
+        
+        # Skip comments
+        if stripped.startswith('//') or stripped.startswith('/*'):
+            continue
+        
+        # Check if this is a control statement
+        is_control_statement = (
+            stripped.startswith('if ') or 
+            stripped.startswith('else if ') or
+            (stripped == 'else' or stripped.startswith('else '))
+        )
+        
+        if is_control_statement:
+            # Get the indentation level of the control statement
+            control_indent = len(line) - len(line.lstrip())
+            
+            # Check the next non-empty, non-comment line
+            next_idx = i + 1
+            while next_idx < len(lines):
+                next_line = lines[next_idx]
+                next_stripped = next_line.strip()
+                
+                # Skip empty lines and comments
+                if not next_stripped or next_stripped.startswith('//'):
+                    next_idx += 1
+                    continue
+                
+                # Check indentation
+                next_indent = len(next_line) - len(next_line.lstrip())
+                
+                # If next line is not indented more than control statement, flag it
+                if next_indent <= control_indent:
+                    issues.append({
+                        'category': 'Script Structure',
+                        'check': 'Indentation (CRITICAL)',
+                        'severity': 'CRITICAL',
+                        'message': f'Line after "{stripped[:30]}..." must be indented. Pine Script requires indented blocks.',
+                        'line': next_idx + 1,
+                        'code': next_line.strip()[:60]
+                    })
+                break
+    
+    # ============================================================================
+    # 5B. PINE SCRIPT V6 SYNTAX CHECKS
+    # ============================================================================
+    
+    # Check for camelCase strategy properties (should be snake_case in v6)
+    pine_v6_property_issues = {
+        'strategy.positionSize': 'strategy.position_size',
+        'strategy.openTrades': 'strategy.open_trades',
+        'strategy.closedTrades': 'strategy.closed_trades',
+        'strategy.eventTrades': 'strategy.event_trades',
+        'strategy.grossProfit': 'strategy.gross_profit',
+        'strategy.grossLoss': 'strategy.gross_loss',
+        'strategy.netProfit': 'strategy.net_profit',
+        'strategy.maxDrawdown': 'strategy.max_drawdown',
+        'strategy.initialCapital': 'strategy.initial_capital',
+    }
+    
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith('//'):
+            continue
+        
+        for old_prop, new_prop in pine_v6_property_issues.items():
+            if old_prop in line:
+                issues.append({
+                    'category': 'Pine Script v6 Syntax',
+                    'check': 'Property Names',
+                    'severity': 'CRITICAL',
+                    'message': f'Use "{new_prop}" instead of "{old_prop}" (Pine Script v6 requires snake_case)',
+                    'line': i,
+                    'code': line.strip()[:80]
+                })
+    
+    # Check for camelCase strategy() parameters (should be snake_case in v6)
+    pine_v6_param_issues = {
+        'initialCapital': 'initial_capital',
+        'defaultQtyValue': 'default_qty_value',
+        'defaultQtyType': 'default_qty_type',
+        'commissionType': 'commission_type',
+        'commissionValue': 'commission_value',
+        'calcOnOrderFills': 'calc_on_order_fills',
+        'calcOnEveryTick': 'calc_on_every_tick',
+        'maxBarsBack': 'max_bars_back',
+        'backTestFillLimitsAssumption': 'backtest_fill_limits_assumption',
+        'defaultQtyValuePercentage': 'default_qty_value_percentage',
+        'riskFreeRate': 'risk_free_rate',
+        'useBarsBacktest': 'use_bars_backtest',
+        'fillOrdersOnOpen': 'fill_orders_on_open',
+        'processOrdersOnClose': 'process_orders_on_close',
+        'closeEntriesRule': 'close_entries_rule',
+    }
+    
+    in_strategy_declaration = False
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        
+        # Detect strategy() declaration
+        if 'strategy(' in line:
+            in_strategy_declaration = True
+        
+        if in_strategy_declaration:
+            for old_param, new_param in pine_v6_param_issues.items():
+                # Match parameter with = after it
+                if re.search(r'\b' + old_param + r'\s*=', line):
+                    issues.append({
+                        'category': 'Pine Script v6 Syntax',
+                        'check': 'Strategy Parameters',
+                        'severity': 'CRITICAL',
+                        'message': f'Use "{new_param}=" instead of "{old_param}=" in strategy() declaration (Pine Script v6 requires snake_case)',
+                        'line': i,
+                        'code': line.strip()[:80]
+                    })
+        
+        # End of strategy declaration
+        if in_strategy_declaration and ')' in line:
+            in_strategy_declaration = False
+    
+    # ============================================================================
     # 6. PASS CHECKS (What's Done Well)
     # ============================================================================
     
@@ -1040,8 +1782,18 @@ def save_edited_code(script_id):
             # Update the existing v1.0.0 file instead of creating a new version
             version_to_update = current_version
             
-            # Update version in code if present (keep it as current version)
-            edited_code = update_version_in_code(edited_code, version_to_update)
+            # Update/inject version header with full metadata
+            project_name = get_project_name_from_path(script.get('filePath'))
+            filename = f"{project_name}_v{version_to_update}.pine"
+            edited_code = update_version_in_code(
+                edited_code, 
+                version_to_update,
+                script_name=script.get('name', 'Unknown Script'),
+                script_type=script.get('type', 'indicator').upper(),
+                filename=filename,
+                changelog='Initial version',
+                author=script.get('author', 'Your Name')
+            )
             
             # Get the current version file path
             version_file = None
@@ -1086,8 +1838,7 @@ def save_edited_code(script_id):
         # Otherwise, create a new version (normal edit flow)
         new_version = increment_version(current_version)
         
-        # Update version in code if present
-        edited_code = update_version_in_code(edited_code, new_version)
+        # Note: version header will be injected by create_new_version()
         
         # Create new version
         success, version_info, error = create_new_version(
@@ -1143,14 +1894,64 @@ def autofix_script_code(script_id):
         if error:
             return jsonify({"error": error}), 404
         
+        # Run code review BEFORE fixes to identify issues
+        review_before = perform_code_review(code, script['name'])
+        issues_before = review_before['issues']
+        
+        # Identify unfixable critical issues BEFORE attempting fixes
+        critical_issues = [i for i in issues_before if i['severity'] == 'CRITICAL']
+        unfixable_issues = [i for i in critical_issues 
+                           if 'ta.*' in i.get('check', '') or 'Function Scoping' in i.get('check', '')]
+        
+        # If ONLY unfixable issues exist, don't run QuickFix
+        fixable_issues = [i for i in issues_before if i not in unfixable_issues and i['severity'] != 'PASS']
+        
+        if len(fixable_issues) == 0 and len(unfixable_issues) > 0:
+            return jsonify({
+                'success': False,
+                'message': f'All {len(unfixable_issues)} critical issue(s) require Smart Fix (code restructuring needed)',
+                'unfixableIssues': [{
+                    'check': i.get('check'),
+                    'line': i.get('line'),
+                    'message': i.get('message'),
+                    'code': i.get('code', '')[:80]
+                } for i in unfixable_issues],
+                'criticalIssuesRemaining': len(critical_issues),
+                'recommendSmartFix': True,
+                'requiresSmartFix': True
+            })
+        
         # Apply auto-fixes
         fixed_code, fixes_applied = apply_auto_fixes(code)
+        
+        # Verify fixes actually changed something
+        if fixed_code.strip() == code.strip():
+            fixes_applied = []  # No real changes made
+        
+        # Check if there are still CRITICAL issues after quick fix
+        review_after_fix = perform_code_review(fixed_code, script['name'])
+        critical_issues_remaining = [i for i in review_after_fix['issues'] if i['severity'] == 'CRITICAL']
+        
+        # Only create new version if fixes were actually applied
+        if len(fixes_applied) == 0:
+            return jsonify({
+                'success': False,
+                'message': 'No fixable issues found (code is already compliant or requires Smart Fix)',
+                'unfixableIssues': [{
+                    'check': i.get('check'),
+                    'line': i.get('line'),
+                    'message': i.get('message'),
+                    'code': i.get('code', '')[:80]
+                } for i in unfixable_issues],
+                'criticalIssuesRemaining': len(critical_issues_remaining),
+                'recommendSmartFix': len(unfixable_issues) > 0,
+                'requiresSmartFix': len(unfixable_issues) > 0
+            })
         
         # Increment version
         new_version = increment_version(current_version)
         
-        # Update version in code
-        fixed_code = update_version_in_code(fixed_code, new_version)
+        # Note: version header will be injected by create_new_version()
         
         # Create changelog
         changelog = f"Auto-fix: {len(fixes_applied)} issue(s) fixed - " + ", ".join(fixes_applied[:3])
@@ -1182,7 +1983,11 @@ def autofix_script_code(script_id):
             'newVersion': new_version,
             'previousVersion': current_version,
             'changelog': changelog,
-            'versionInfo': version_info
+            'versionInfo': version_info,
+            'criticalIssuesRemaining': len(critical_issues_remaining),
+            'unfixableCriticalIssues': len(unfixable_issues),
+            'recommendSmartFix': len(unfixable_issues) > 0,
+            'warning': f"{len(unfixable_issues)} CRITICAL issue(s) require Smart Fix (ta.* scoping needs code restructuring)" if len(unfixable_issues) > 0 else None
         })
         
     except Exception as e:
@@ -1260,8 +2065,7 @@ def auto_fix_all_script(script_id):
         # Increment version
         new_version = increment_version(current_version)
         
-        # Update version in code
-        final_code = update_version_in_code(final_code, new_version)
+        # Note: version header will be injected by create_new_version()
         
         # Create changelog
         changelog_parts = []
@@ -1374,8 +2178,7 @@ def smart_autofix_script(script_id):
         # Increment version
         new_version = increment_version(current_version)
         
-        # Update version in code
-        fixed_code = update_version_in_code(fixed_code, new_version)
+        # Note: version header will be injected by create_new_version()
         
         # Create changelog
         changelog = f"Smart Auto-fix (LLM): Fixed {review_results['summary']['critical']} critical and {review_results['summary']['high']} high-priority issues. {explanation[:100]}"
@@ -1420,66 +2223,299 @@ def apply_auto_fixes(code):
     """
     fixes_applied = []
     lines = code.split('\n')
+    
+    # ============================================================================
+    # FIRST PASS: Fix ternary operator line continuation (CRITICAL - causes syntax errors)
+    # ============================================================================
+    # When a line ends with ?, the next line must be indented
+    in_multiline_comment = False
+    ternary_fixes = 0
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            i += 1
+            continue
+        
+        # Skip comments
+        if stripped.startswith('//') or in_multiline_comment:
+            i += 1
+            continue
+        
+        # Check if line ends with an operator that requires continuation indentation
+        # Pine Script requires indentation for line continuation with ANY operator
+        continuation_operators = [
+            '?',      # Ternary operator
+            'and',    # Logical AND
+            'or',     # Logical OR
+            '+',      # Addition
+            '-',      # Subtraction
+            '*',      # Multiplication
+            '/',      # Division
+            '==',     # Equality
+            '!=',     # Not equal
+            '>',      # Greater than
+            '<',      # Less than
+            '>=',     # Greater or equal
+            '<=',     # Less or equal
+        ]
+        
+        # Check for operators at end of line
+        is_operator_continuation = False
+        for op in continuation_operators:
+            if stripped.endswith(op):
+                is_operator_continuation = True
+                break
+        
+        # Special case: line has ? and ends with :
+        if not is_operator_continuation and stripped.endswith(':') and '?' in stripped:
+            is_operator_continuation = True
+        
+        if is_operator_continuation:
+            # Find next non-empty, non-comment line
+            next_idx = i + 1
+            while next_idx < len(lines):
+                next_line = lines[next_idx]
+                next_stripped = next_line.strip()
+                
+                # Skip empty lines and comments
+                if not next_stripped or next_stripped.startswith('//'):
+                    next_idx += 1
+                    continue
+                
+                # Found continuation line - check indentation
+                current_indent = len(line) - len(line.lstrip())
+                next_indent = len(next_line) - len(next_line.lstrip())
+                
+                # If not indented properly, fix it
+                if next_indent <= current_indent:
+                    # Continuation line needs to be indented 4 spaces MORE than the line with operator
+                    required_indent = current_indent + 4
+                    # Strip existing leading whitespace and add correct indentation
+                    lines[next_idx] = (' ' * required_indent) + next_stripped
+                    ternary_fixes += 1
+                    fixes_applied.append(f"Line {next_idx+1}: Fixed operator line continuation (added indentation)")
+                
+                break
+        
+        i += 1
+    
+    if ternary_fixes > 0:
+        fixes_applied.append(f"Fixed {ternary_fixes} ternary operator line continuation issue(s)")
+    
+    # ============================================================================
+    # SECOND PASS: Identify input variables that need Input suffix
+    # ============================================================================
+    input_renames = {}  # Maps old_name -> new_name
+    input_pattern = re.compile(r'(\w+)\s*=\s*input\.(bool|int|float|string|color|time|timeframe|source|session)')
+    
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith('//') or stripped.startswith('/*'):
+            continue
+        
+        matches = input_pattern.findall(line)
+        for var_name, input_type in matches:
+            if not var_name.endswith('Input'):
+                new_name = var_name + 'Input'
+                input_renames[var_name] = new_name
+                fixes_applied.append(f"Line {i}: Renamed input variable '{var_name}' to '{new_name}'")
+    
+    # ============================================================================
+    # THIRD PASS: Apply all other fixes line by line
+    # ============================================================================
     fixed_lines = []
+    
+    # Track multi-line comment blocks
+    in_multiline_comment = False
     
     i = 0
     while i < len(lines):
         line = lines[i]
         original_line = line
+        stripped = line.strip()
         
-        # Skip comments
-        if line.strip().startswith('//'):
+        # Track multi-line comment state
+        if '/*' in line:
+            in_multiline_comment = True
+        if '*/' in line:
+            in_multiline_comment = False
+            fixed_lines.append(line)
+            i += 1
+            continue
+        
+        # Note: We no longer auto-upgrade v5 to v6 (both versions are acceptable)
+        # Fix version BEFORE skipping comments (since version directive is a comment)
+        # if i < 5 and '//@version=5' in line:
+        #     line = line.replace('//@version=5', '//@version=6')
+        #     fixes_applied.append(f"Line {i+1}: Upgraded Pine Script version from 5 to 6")
+        
+        # Skip single-line comments and multi-line comment blocks
+        if stripped.startswith('//') or in_multiline_comment:
             fixed_lines.append(line)
             i += 1
             continue
         
         # Fix 1: Add spaces around operators
-        if '=' in line and not line.strip().startswith('//'):
-            # Fix assignment operators without spaces
-            line = re.sub(r'([a-zA-Z0-9_])=([a-zA-Z0-9_])', r'\1 = \2', line)
-            line = re.sub(r'([a-zA-Z0-9_])\+=([a-zA-Z0-9_])', r'\1 += \2', line)
-            line = re.sub(r'([a-zA-Z0-9_])-=([a-zA-Z0-9_])', r'\1 -= \2', line)
-            line = re.sub(r'([a-zA-Z0-9_])\*=([a-zA-Z0-9_])', r'\1 *= \2', line)
-            line = re.sub(r'([a-zA-Z0-9_])/=([a-zA-Z0-9_])', r'\1 /= \2', line)
-            line = re.sub(r'([a-zA-Z0-9_]):=([a-zA-Z0-9_])', r'\1 := \2', line)
+        if '=' in line:
+            # Fix assignment operators without spaces (match multiple characters)
+            # Note: These will add spaces everywhere, but Fix 11 later removes them from function parameters
+            line = re.sub(r'([a-zA-Z0-9_]+)=([a-zA-Z0-9_])', r'\1 = \2', line)
+            line = re.sub(r'([a-zA-Z0-9_]+)\+=([a-zA-Z0-9_])', r'\1 += \2', line)
+            line = re.sub(r'([a-zA-Z0-9_]+)-=([a-zA-Z0-9_])', r'\1 -= \2', line)
+            line = re.sub(r'([a-zA-Z0-9_]+)\*=([a-zA-Z0-9_])', r'\1 *= \2', line)
+            line = re.sub(r'([a-zA-Z0-9_]+)/=([a-zA-Z0-9_])', r'\1 /= \2', line)
+            line = re.sub(r'([a-zA-Z0-9_]+):=([a-zA-Z0-9_])', r'\1 := \2', line)
             
-            # Fix arithmetic operators
-            line = re.sub(r'([a-zA-Z0-9_])\+([a-zA-Z0-9_])', r'\1 + \2', line)
-            line = re.sub(r'([a-zA-Z0-9_])-([a-zA-Z0-9_])', r'\1 - \2', line)
-            line = re.sub(r'([a-zA-Z0-9_])\*([a-zA-Z0-9_])', r'\1 * \2', line)
-            line = re.sub(r'([a-zA-Z0-9_])/([a-zA-Z0-9_])', r'\1 / \2', line)
-            
-            if line != original_line:
-                fixes_applied.append(f"Line {i+1}: Added operator spacing")
+            # Fix arithmetic operators (match multiple characters)
+            line = re.sub(r'([a-zA-Z0-9_]+)\+([a-zA-Z0-9_])', r'\1 + \2', line)
+            line = re.sub(r'([a-zA-Z0-9_]+)-([a-zA-Z0-9_])', r'\1 - \2', line)
+            line = re.sub(r'([a-zA-Z0-9_]+)\*([a-zA-Z0-9_])', r'\1 * \2', line)
+            line = re.sub(r'([a-zA-Z0-9_]+)/([a-zA-Z0-9_])', r'\1 / \2', line)
         
-        # Fix 2: Convert snake_case variables to camelCase (cautiously)
-        # Only fix simple variable assignments, not constants
+        # Fix 1b: Add spaces around comparison operators (avoid breaking >=, <=, ==, !=)
+        # Do this AFTER assignment operators to avoid conflicts
+        if '>' in line or '<' in line:
+            # Fix > and < (but not >= or <=)
+            line = re.sub(r'([a-zA-Z0-9_\]]+)>(?!=)([a-zA-Z0-9_\[])', r'\1 > \2', line)
+            line = re.sub(r'([a-zA-Z0-9_\]]+)<(?!=)([a-zA-Z0-9_\[])', r'\1 < \2', line)
+        
+        # Fix 1c: Multi-line if statement indentation
+        # Check if this is an if statement without inline body
+        if re.match(r'^(\s*)(if|else\s+if)\s+.+$', stripped) and not '=>' in line:
+            # Look ahead to see if next line needs indentation
+            if i + 1 < len(lines):
+                next_line = lines[i + 1]
+                next_stripped = next_line.strip()
+                
+                # Skip empty lines
+                peek_idx = i + 1
+                while peek_idx < len(lines) and not lines[peek_idx].strip():
+                    peek_idx += 1
+                
+                if peek_idx < len(lines):
+                    next_line = lines[peek_idx]
+                    next_stripped = next_line.strip()
+                    
+                    # Check indentation
+                    if next_stripped and not next_stripped.startswith('//'):
+                        current_indent = len(line) - len(line.lstrip())
+                        next_indent = len(next_line) - len(next_line.lstrip())
+                        
+                        # If next line is not indented, it needs fixing
+                        if next_indent <= current_indent and not re.match(r'^(if|else|var|const|float|int|bool|string)', next_stripped):
+                            # Mark that we need to indent the following lines
+                            # This will be handled in a separate pass below
+                            pass
+        
+        if line != original_line:
+            fixes_applied.append(f"Line {i+1}: Added operator spacing")
+        
+        # Fix 2: Apply input variable renames throughout the code
+        # Replace all occurrences of renamed input variables
+        for old_name, new_name in input_renames.items():
+            # Use word boundaries to avoid partial matches
+            # Match: old_name followed by space, operator, or end of identifier
+            pattern = r'\b' + re.escape(old_name) + r'\b'
+            if re.search(pattern, line):
+                line = re.sub(pattern, new_name, line)
+        
+        # Fix 3: Convert snake_case variables to camelCase (cautiously)
+        # Only fix simple variable assignments, not constants or function parameters
         if '=' in line and not 'const' in line and not line.strip().startswith('//'):
             # Find snake_case variable names
-            snake_case_pattern = re.compile(r'\b([a-z]+_[a-z_]+)\s*=')
+            snake_case_pattern = re.compile(r'\b([a-z]+_[a-z_]+)\s*=(?!=|<|>)')
             matches = snake_case_pattern.findall(line)
             for match in matches:
-                if not match.isupper() and 'input' not in match.lower():
-                    camel_case = to_camel_case(match)
-                    line = line.replace(match + ' =', camel_case + ' =')
-                    fixes_applied.append(f"Line {i+1}: Converted '{match}' to '{camel_case}'")
+                # Skip constants (all uppercase)
+                if match.isupper():
+                    continue
+                
+                # Skip 'input' keyword itself
+                if 'input' in match.lower():
+                    continue
+                
+                # Skip function parameters (appear after ( or , within function calls)
+                # Example: strategy(..., initial_capital=50000) should NOT be converted
+                if re.search(r'[(,]\s*[^)]*\b' + re.escape(match) + r'\s*=', line):
+                    continue
+                
+                # Convert to camelCase
+                camel_case = to_camel_case(match)
+                line = line.replace(match + ' =', camel_case + ' =')
+                fixes_applied.append(f"Line {i+1}: Converted '{match}' to '{camel_case}'")
         
-        # Fix 3: Fix common ta.* scoping issues (add comment warning)
-        if 'ta.' in line and line.strip().startswith('if '):
-            # Add a comment warning about ta.* in if blocks
-            indent = len(line) - len(line.lstrip())
-            warning = ' ' * indent + '// WARNING: ta.* functions should be called at global scope\n'
-            fixed_lines.append(warning + line)
-            fixes_applied.append(f"Line {i+1}: Added warning about ta.* scoping")
-            i += 1
-            continue
+        # Fix 5: Type mismatch corrections
+        # ta.change() returns int, not bool
+        if 'bool' in line and 'ta.change(' in line and '=' in line:
+            original = line
+            # Change bool to int for ta.change()
+            line = re.sub(r'\b(const\s+)?bool\b', r'\1int', line)
+            if line != original:
+                fixes_applied.append(f"Line {i+1}: Changed 'bool' to 'int' for ta.change() return type")
         
-        # Fix 4: Add //@version=5 if missing
-        if i == 0 and '//@version=5' not in code[:100]:
+        # na() returns bool, not int/float
+        if ('int' in line or 'float' in line) and 'na(' in line and '=' in line:
+            original = line
+            # Change int/float to bool for na()
+            line = re.sub(r'\b(const\s+)?(?:int|float)\b', r'\1bool', line)
+            if line != original:
+                fixes_applied.append(f"Line {i+1}: Changed to 'bool' for na() return type")
+        
+        # ta.crossover/crossunder return bool, not int/float
+        if ('int' in line or 'float' in line) and ('ta.crossover(' in line or 'ta.crossunder(' in line) and '=' in line:
+            original = line
+            line = re.sub(r'\b(const\s+)?(?:int|float)\b', r'\1bool', line)
+            if line != original:
+                fixes_applied.append(f"Line {i+1}: Changed to 'bool' for ta.crossover()/ta.crossunder() return type")
+        
+        # ta.pivothigh/pivotlow return float, not bool
+        if 'bool' in line and ('ta.pivothigh(' in line or 'ta.pivotlow(' in line) and '=' in line:
+            original = line
+            line = re.sub(r'\b(const\s+)?bool\b', r'\1float', line)
+            if line != original:
+                fixes_applied.append(f"Line {i+1}: Changed 'bool' to 'float' for ta.pivot*() return type")
+        
+        # ta.barssince returns int, not bool
+        if 'bool' in line and 'ta.barssince(' in line and '=' in line:
+            original = line
+            line = re.sub(r'\b(const\s+)?bool\b', r'\1int', line)
+            if line != original:
+                fixes_applied.append(f"Line {i+1}: Changed 'bool' to 'int' for ta.barssince() return type")
+        
+        # Fix 6: ta.* scoping issues CANNOT be automatically fixed
+        # These require code restructuring (moving ta.* calls to global scope)
+        # Use Smart Fix (LLM) for these issues instead
+        # REMOVED: Adding warning comments doesn't fix the issue and confuses users
+        
+        # Fix 7: Add //@version=5 if missing (v5 is widely supported)
+        if i == 0 and '//@version=' not in code[:100]:
             fixed_lines.append('//@version=5')
             fixes_applied.append("Added //@version=5 declaration")
         
-        # Fix 5: Fix request.security missing parameters
+        # Fix 8: Remove spaces in session/timezone/timestamp strings
+        if 'const string' in line or 'timestamp(' in line or 'input.time(' in line:
+            original = line
+            # Fix session strings: "0930 - 1600" -> "0930-1600"
+            line = re.sub(r'"\s*(\d{4})\s*-\s*(\d{4})\s*:', r'"\1-\2:', line)
+            # Fix timezone strings: "America / New_York" -> "America/New_York"
+            line = re.sub(r'"([A-Za-z_]+)\s*/\s*([A-Za-z_]+)"', r'"\1/\2"', line)
+            # Fix timestamp strings: "2025 - 10 - 01" -> "2025-10-01"
+            line = re.sub(r'"\s*(\d{4})\s*-\s*(\d{2})\s*-\s*(\d{2})', r'"\1-\2-\3', line)
+            # Fix general strings with " / ": "TP / SL" -> "TP/SL" (but preserve spaces before/after)
+            line = re.sub(r'([A-Za-z]+)\s*/\s*([A-Za-z]+)', r'\1/\2', line)
+            
+            if line != original:
+                fixes_applied.append(f"Line {i+1}: Removed invalid spaces in string constants")
+        
+        # Fix 9: Fix request.security missing parameters
         if 'request.security' in line:
             # Check if this is a complete call or spans multiple lines
             complete_call = line
@@ -1533,11 +2569,336 @@ def apply_auto_fixes(code):
     
     fixed_code = '\n'.join(fixed_lines)
     
-    # Fix 6: Ensure proper spacing around commas in function calls
+    # Fix 10: Fix multi-line if statement indentation
+    # Pine Script requires multi-line if bodies to be indented
+    lines_v10 = fixed_code.split('\n')
+    fixed_lines_v10 = []
+    if_indent_fixes = 0
+    
+    i = 0
+    while i < len(lines_v10):
+        line = lines_v10[i]
+        stripped = line.strip()
+        
+        # Check if this is a multi-line if statement (no => on same line)
+        # Match: if/for/while followed by space, else if, or else at end of line
+        is_control_stmt = (re.match(r'^(\s*)(if|for|while)\s+', stripped) or 
+                          re.match(r'^(\s*)(else\s+if)\s+', stripped) or
+                          stripped == 'else' or
+                          re.match(r'^(\s*)else\s*$', stripped))
+        if is_control_stmt and '=>' not in line and ':' not in line:
+            if_indent = len(line) - len(line.lstrip())
+            fixed_lines_v10.append(line)
+            i += 1
+            
+            # Check if next line(s) need indenting
+            # Skip empty lines and comments
+            while i < len(lines_v10):
+                next_line = lines_v10[i]
+                next_stripped = next_line.strip()
+                
+                # If empty or comment, keep as-is
+                if not next_stripped or next_stripped.startswith('//'):
+                    fixed_lines_v10.append(next_line)
+                    i += 1
+                    continue
+                
+                # Check indentation of first real line after if
+                next_indent = len(next_line) - len(next_line.lstrip())
+                expected_indent = if_indent + 4
+                
+                # If it's not indented by exactly 4 spaces more than the if statement, we need to fix it
+                if next_indent != expected_indent:
+                    # Check if this is a new statement (another if, var, const, etc) or part of the if body
+                    is_new_block = re.match(r'^(if|else|var|const|for|while)\s+', next_stripped)
+                    
+                    if not is_new_block:
+                        # This is the if body that needs indenting
+                        # Calculate expected indent (if_indent + 4)
+                        expected_body_indent = if_indent + 4
+                        
+                        # Collect all lines that are part of the body
+                        body_lines = []
+                        while i < len(lines_v10):
+                            body_line = lines_v10[i]
+                            body_stripped = body_line.strip()
+                            body_indent = len(body_line) - len(body_line.lstrip())
+                            
+                            # If empty, add and continue
+                            if not body_stripped:
+                                body_lines.append(body_line)
+                                i += 1
+                                continue
+                            
+                            # If it's another control statement at same/less indent, we're done
+                            if body_indent < if_indent or (body_indent == if_indent and re.match(r'^(if|else|var|const|for|while)\s+', body_stripped)):
+                                break
+                            
+                            # Check if this line needs re-indenting
+                            if body_indent < expected_body_indent:
+                                # Not indented enough - fix it
+                                # Remove existing indentation and add correct amount
+                                spaces_to_add = expected_body_indent - body_indent
+                                indented_line = (' ' * spaces_to_add) + body_line
+                                body_lines.append(indented_line)
+                                if_indent_fixes += 1
+                                i += 1
+                            elif body_indent == expected_body_indent:
+                                # Already correctly indented
+                                body_lines.append(body_line)
+                                i += 1
+                            elif body_indent > expected_body_indent:
+                                # More indented (nested code) - keep relative indentation
+                                body_lines.append(body_line)
+                                i += 1
+                            else:
+                                break
+                        
+                        # Add all body lines
+                        fixed_lines_v10.extend(body_lines)
+                        break  # Done with this if statement
+                    else:
+                        # It's a new statement, not part of if body
+                        break
+                else:
+                    # Already properly indented
+                    break
+        else:
+            # Not an if statement, keep as-is
+            fixed_lines_v10.append(line)
+            i += 1
+    
+    if if_indent_fixes > 0:
+        fixes_applied.append(f"Fixed indentation for {if_indent_fixes} if/else statement body line(s)")
+        fixed_code = '\n'.join(fixed_lines_v10)
+    
+    # Fix 11: Ensure proper spacing around commas in function calls
     original_code_joined = '\n'.join(lines)
     fixed_code = re.sub(r',([a-zA-Z0-9_])', r', \1', fixed_code)
     if fixed_code != original_code_joined:
         fixes_applied.append("Added spacing after commas")
+    
+    # Fix 12: Fix named parameters - remove spaces around = ONLY in function calls
+    # This is tricky: we want step = 0.05 -> step=0.05 (in functions)
+    # But keep: float x = 5 (variable declarations)
+    # Strategy: Only fix parameters that appear after a comma or opening paren
+    fixed_code_v2 = fixed_code
+    
+    # Pattern: After comma or paren: ", step = 0.05" -> ", step=0.05"
+    fixed_code_v2 = re.sub(r'([,(])\s*(\w+)\s*=\s*', r'\1 \2=', fixed_code_v2)
+    
+    if fixed_code_v2 != fixed_code:
+        fixes_applied.append("Fixed spacing in named parameters (removed spaces around =)")
+        fixed_code = fixed_code_v2
+    
+    # Fix 13: Ensure variable declarations HAVE spaces around =
+    # Pattern: start of line (with optional type/var) followed by identifier=value
+    # Examples: "float x=5" -> "float x = 5", "var int y=10" -> "var int y = 10"
+    # ONLY flag lines that actually have missing spaces (x=5 not x = 5)
+    fixed_code_v3 = fixed_code
+    lines_v3 = fixed_code_v3.split('\n')
+    fixed_lines_v3 = []
+    actual_var_fixes = 0
+    
+    for line in lines_v3:
+        original = line
+        # Match variable declarations: optional type keywords, then identifier=value
+        # Must be at start of line (after optional whitespace)
+        # Pattern: (optional: var/float/int/bool/string/color) identifier=value
+        # This regex looks for lines that start with type declaration
+        # BUT check if there are ACTUALLY missing spaces (not already correct)
+        if re.match(r'^\s*(var\s+)?(float|int|bool|string|color|line|label|box|table|array)\s+\w+\s*=(?!=)', line):
+            # Check if spaces are actually missing
+            match = re.search(r'(\w+)\s*=\s*(?!=)', line)
+            if match:
+                var_name = match.group(1)
+                # Check if there's NO space before or after =
+                if re.search(r'(\w+)=(?!=)', line) or re.search(r'=(\S)', line):
+                    # Only replace if this looks like a declaration, not a function parameter
+                    if '(' not in line[:match.start()] or line[:match.start()].count('(') == line[:match.start()].count(')'):
+                        line = re.sub(r'(\b' + var_name + r')\s*=\s*(?!=)', r'\1 = ', line, count=1)
+                        if line != original:
+                            actual_var_fixes += 1
+        
+        fixed_lines_v3.append(line)
+    
+    fixed_code_v3 = '\n'.join(fixed_lines_v3)
+    if fixed_code_v3 != fixed_code and actual_var_fixes > 0:
+        fixes_applied.append(f"Added spaces around = in {actual_var_fixes} variable declaration(s)")
+        fixed_code = fixed_code_v3
+    
+    # Fix 14: Fix Pine Script indentation (if blocks must have indented bodies)
+    # In Pine Script, if you have multi-line if bodies, they MUST be indented
+    lines_v3b = fixed_code.split('\n')
+    fixed_lines_v3b = []
+    indentation_fixes = 0
+    
+    i = 0
+    while i < len(lines_v3b):
+        line = lines_v3b[i]
+        stripped = line.strip()
+        
+        # Check if this is an if/else/for/while statement
+        is_control_statement = (
+            stripped.startswith('if ') or 
+            stripped.startswith('else if ') or 
+            stripped.startswith('else ') or
+            stripped.startswith('for ') or
+            stripped.startswith('while ')
+        )
+        
+        if is_control_statement and not stripped.startswith('//'):
+            # Get the indentation level of the control statement
+            control_indent = len(line) - len(line.lstrip())
+            fixed_lines_v3b.append(line)
+            i += 1
+            
+            # Check the next line(s) - they should be indented
+            if i < len(lines_v3b):
+                next_line = lines_v3b[i]
+                next_stripped = next_line.strip()
+                
+                # Skip empty lines and comments
+                while i < len(lines_v3b) and (not next_stripped or next_stripped.startswith('//')):
+                    fixed_lines_v3b.append(next_line)
+                    i += 1
+                    if i < len(lines_v3b):
+                        next_line = lines_v3b[i]
+                        next_stripped = next_line.strip()
+                
+                # Check if next non-empty, non-comment line is indented
+                if i < len(lines_v3b) and next_stripped:
+                    next_indent = len(next_line) - len(next_line.lstrip())
+                    
+                    # If next line is not indented more than control statement, it needs fixing
+                    if next_indent <= control_indent:
+                        # Indent the body lines (collect all lines until we hit a line with same/less indentation)
+                        while i < len(lines_v3b):
+                            body_line = lines_v3b[i]
+                            body_stripped = body_line.strip()
+                            
+                            # Skip empty lines
+                            if not body_stripped:
+                                fixed_lines_v3b.append(body_line)
+                                i += 1
+                                continue
+                            
+                            body_indent = len(body_line) - len(body_line.lstrip())
+                            
+                            # Check if this line is part of the body or a new statement
+                            # If it starts with a control keyword at same/less indent, we're done
+                            is_new_statement = (
+                                body_stripped.startswith('if ') or
+                                body_stripped.startswith('else') or
+                                body_stripped.startswith('for ') or
+                                body_stripped.startswith('while ') or
+                                body_stripped.startswith('var ') or
+                                body_stripped.startswith('const ') or
+                                (body_indent <= control_indent and ':=' not in body_line and '=' in body_line)
+                            )
+                            
+                            # If body_indent <= control_indent and it's a new statement, we're done with body
+                            if body_indent <= control_indent and is_new_statement:
+                                break
+                            
+                            # Otherwise, ensure this line is indented
+                            if body_indent <= control_indent:
+                                # Add 2-space indentation
+                                fixed_line = ' ' * (control_indent + 2) + body_stripped
+                                fixed_lines_v3b.append(fixed_line)
+                                indentation_fixes += 1
+                                i += 1
+                            else:
+                                # Already properly indented
+                                fixed_lines_v3b.append(body_line)
+                                i += 1
+                                
+                                # Only fix one block of statements (until we hit proper indentation)
+                                break
+        else:
+            fixed_lines_v3b.append(line)
+            i += 1
+    
+    if indentation_fixes > 0:
+        fixes_applied.append(f"Fixed indentation for {indentation_fixes} line(s) in if/for/while blocks")
+        fixed_code = '\n'.join(fixed_lines_v3b)
+    
+    # Fix 14: Convert Pine Script v6 strategy property names (camelCase -> snake_case)
+    # strategy.positionSize -> strategy.position_size
+    pine_v6_properties = {
+        'strategy.positionSize': 'strategy.position_size',
+        'strategy.openTrades': 'strategy.open_trades',
+        'strategy.closedTrades': 'strategy.closed_trades',
+        'strategy.eventTrades': 'strategy.event_trades',
+        'strategy.wintrades': 'strategy.wintrades',  # No change needed
+        'strategy.losstrades': 'strategy.losstrades',  # No change needed
+        'strategy.eventrades': 'strategy.eventrades',  # No change needed
+        'strategy.grossProfit': 'strategy.gross_profit',
+        'strategy.grossLoss': 'strategy.gross_loss',
+        'strategy.netProfit': 'strategy.net_profit',
+        'strategy.maxDrawdown': 'strategy.max_drawdown',
+        'strategy.initialCapital': 'strategy.initial_capital',
+    }
+    
+    fixed_code_v4 = fixed_code
+    for old_prop, new_prop in pine_v6_properties.items():
+        if old_prop in fixed_code_v4:
+            fixed_code_v4 = fixed_code_v4.replace(old_prop, new_prop)
+            fixes_applied.append(f"Converted '{old_prop}' to '{new_prop}' (Pine Script v6)")
+    
+    fixed_code = fixed_code_v4
+    
+    # Fix 15: Convert strategy() declaration parameters (camelCase -> snake_case)
+    # This is more complex because we need to handle multi-line strategy declarations
+    strategy_params = {
+        'initialCapital': 'initial_capital',
+        'defaultQtyValue': 'default_qty_value',
+        'defaultQtyType': 'default_qty_type',
+        'commissionType': 'commission_type',
+        'commissionValue': 'commission_value',
+        'pyramiding': 'pyramiding',  # No change
+        'calcOnOrderFills': 'calc_on_order_fills',
+        'calcOnEveryTick': 'calc_on_every_tick',
+        'maxBarsBack': 'max_bars_back',
+        'backTestFillLimitsAssumption': 'backtest_fill_limits_assumption',
+        'defaultQtyValuePercentage': 'default_qty_value_percentage',
+        'riskFreeRate': 'risk_free_rate',
+        'useBarsBacktest': 'use_bars_backtest',
+        'fillOrdersOnOpen': 'fill_orders_on_open',
+        'processOrdersOnClose': 'process_orders_on_close',
+        'closeEntriesRule': 'close_entries_rule',
+    }
+    
+    fixed_code_v5 = fixed_code
+    lines_v5 = fixed_code_v5.split('\n')
+    in_strategy_declaration = False
+    strategy_start_line = -1
+    
+    for i, line in enumerate(lines_v5):
+        # Detect start of strategy() declaration
+        if 'strategy(' in line:
+            in_strategy_declaration = True
+            strategy_start_line = i
+        
+        # If we're in a strategy declaration, apply parameter fixes
+        if in_strategy_declaration:
+            original_line = line
+            for old_param, new_param in strategy_params.items():
+                # Match parameter names with = after them (named parameters)
+                # Use word boundaries to avoid partial matches
+                pattern = r'\b' + old_param + r'\s*='
+                if re.search(pattern, line):
+                    line = re.sub(pattern, new_param + '=', line)
+            
+            if line != original_line:
+                lines_v5[i] = line
+                fixes_applied.append(f"Line {i+1}: Converted strategy() parameter(s) to snake_case (Pine Script v6)")
+        
+        # Detect end of strategy() declaration
+        if in_strategy_declaration and ')' in line:
+            in_strategy_declaration = False
+    
+    fixed_code = '\n'.join(lines_v5)
     
     return fixed_code, fixes_applied
 
@@ -1559,6 +2920,9 @@ def apply_smart_fixes_with_llm(code, script_name, issues, api_key=None, provider
     try:
         # Use provided API key or fallback to server configuration
         effective_api_key = api_key or OPENAI_API_KEY
+        
+        # Initialize manual review issues list
+        manual_review_issues = []
         
         if not effective_api_key:
             return (code, "No API key available", False, "API key not configured")
@@ -1586,7 +2950,114 @@ def apply_smart_fixes_with_llm(code, script_name, issues, api_key=None, provider
         if not critical_issues:
             return (code, "No critical or high-priority issues to fix", True, None)
         
-        # Build issue summary
+        # ============================================================================
+        # STEP 1: Ask LLM to identify which issues need special attention
+        # ============================================================================
+        
+        # Build issue summary for evaluation
+        issues_list = "\n".join([
+            f"{idx+1}. {issue.get('check', 'Unknown')}: {issue.get('message', 'No details')} (Line {issue.get('line', 'N/A')})"
+            for idx, issue in enumerate(critical_issues)
+        ])
+        
+        evaluation_prompt = f"""You are reviewing Pine Script code issues to determine which ones you can safely auto-fix and which require manual review.
+
+**Issues to Evaluate:**
+{issues_list}
+
+**Code Snippet (first 50 lines):**
+```pinescript
+{chr(10).join(code.split(chr(10))[:50])}
+```
+
+**TASK:**
+For each issue, determine if it requires SPECIAL ATTENTION (manual review) or can be SAFELY AUTO-FIXED.
+
+**Issues that typically need SPECIAL ATTENTION:**
+1. Variable Reset Logic (D1) - Depends on strategy intent (persistent vs session-based state)
+2. Complex business logic decisions - Entry/exit conditions, parameter choices
+3. Strategy-specific reset conditions - What triggers a reset depends on trading rules
+4. Ambiguous requirements - Multiple valid solutions exist
+5. Risk of breaking strategy logic - Could change trading behavior
+
+**Issues that can be SAFELY AUTO-FIXED:**
+1. ta.* Function Scoping (B8) - Move to global scope (mechanical fix)
+2. Syntax errors - Missing parameters, spacing issues
+3. Naming conventions - camelCase, SNAKE_CASE conversions
+4. Code organization - Script structure improvements
+
+**OUTPUT FORMAT:**
+Return a JSON object with this structure:
+{{
+  "can_auto_fix": [1, 2, ...],
+  "needs_manual_review": [
+    {{
+      "issue_number": 3,
+      "check_name": "Variable Reset Logic (D1)",
+      "rationale": "These variables track historical pivots for divergence detection. Whether they should reset depends on if the strategy needs multi-session or single-session divergences. This is a business logic decision.",
+      "recommendation": "Review if pivots should persist across sessions or reset daily."
+    }}
+  ]
+}}
+
+Respond with ONLY the JSON, no other text."""
+
+        try:
+            # Call LLM for issue evaluation
+            if provider == 'openai':
+                client = OpenAI(api_key=effective_api_key)
+                eval_response = client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are an expert code reviewer. Analyze which issues require human judgment vs mechanical fixes."},
+                        {"role": "user", "content": evaluation_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=2000
+                )
+                
+                eval_result = eval_response.choices[0].message.content.strip()
+                
+                # Parse JSON response
+                import json
+                # Extract JSON from markdown code blocks if present
+                if '```json' in eval_result:
+                    eval_result = re.search(r'```json\n(.*?)\n```', eval_result, re.DOTALL).group(1)
+                elif '```' in eval_result:
+                    eval_result = re.search(r'```\n(.*?)\n```', eval_result, re.DOTALL).group(1)
+                
+                evaluation = json.loads(eval_result)
+                
+                # Store manual review issues in the result for display
+                manual_review_issues = evaluation.get('needs_manual_review', [])
+                can_fix_indices = evaluation.get('can_auto_fix', [])
+                
+                # Filter issues to only auto-fix the safe ones
+                if can_fix_indices:
+                    critical_issues = [critical_issues[i-1] for i in can_fix_indices if 0 < i <= len(critical_issues)]
+                
+                # If nothing can be auto-fixed, return manual review list
+                if not critical_issues and manual_review_issues:
+                    manual_review_text = "\n\n".join([
+                        f"**{item['check_name']}** (Issue #{item['issue_number']})\n"
+                        f"⚠️ **Why it needs attention:** {item['rationale']}\n"
+                        f"💡 **Recommendation:** {item['recommendation']}"
+                        for item in manual_review_issues
+                    ])
+                    
+                    return (
+                        code, 
+                        f"⚠️ **All issues require manual review**\n\n{manual_review_text}", 
+                        True, 
+                        None
+                    )
+                
+        except Exception as e:
+            # If evaluation fails, proceed with all issues (fail-safe)
+            manual_review_issues = []
+            print(f"Issue evaluation failed, proceeding with all issues: {e}")
+        
+        # Build issue summary for fixing (only safe issues)
         issues_summary = "\n".join([
             f"- {issue.get('check', 'Unknown')}: {issue.get('message', 'No details')} (Line {issue.get('line', 'N/A')})"
             for issue in critical_issues
@@ -1689,6 +3160,18 @@ After the code, add a blank line then "---EXPLANATION---" then explain what you 
             if not fixed_code.startswith('//@version') and not fixed_code.startswith('//'):
                 return (code, "LLM did not return valid Pine Script code", False, "Invalid response format")
             
+            # Append manual review issues to explanation if any were flagged
+            if manual_review_issues:
+                manual_review_text = "\n\n---\n\n## ⚠️ Issues Requiring Manual Review\n\n"
+                manual_review_text += "The following issues were **not auto-fixed** because they require human judgment:\n\n"
+                
+                for item in manual_review_issues:
+                    manual_review_text += f"**{item.get('check_name', 'Unknown')}** (Issue #{item.get('issue_number', '?')})\n"
+                    manual_review_text += f"- **Why it needs attention:** {item.get('rationale', 'Requires domain expertise')}\n"
+                    manual_review_text += f"- **Recommendation:** {item.get('recommendation', 'Review manually')}\n\n"
+                
+                explanation = explanation + manual_review_text
+            
             return (fixed_code, explanation, True, None)
         
         else:
@@ -1717,19 +3200,85 @@ def increment_version(version_string):
         return '1.0.1'
 
 
-def update_version_in_code(code, new_version):
-    """Update version number in code comments if present"""
-    # Look for version comments and update them
-    patterns = [
-        (r'//\s*@version\s+v?[\d.]+', f'// @version v{new_version}'),
-        (r'//\s*Version:\s*v?[\d.]+', f'// Version: v{new_version}'),
-        (r'//\s*v[\d.]+', f'// v{new_version}')
-    ]
+def update_version_in_code(code, new_version, script_name=None, script_type=None, filename=None, changelog=None, author=None):
+    """Update or inject standardized version header in code comments"""
+    from datetime import datetime
     
-    for pattern, replacement in patterns:
-        if re.search(pattern, code, re.IGNORECASE):
-            code = re.sub(pattern, replacement, code, flags=re.IGNORECASE)
-            break
+    # Check if a standardized header already exists (with ==== separators)
+    has_standard_header = bool(re.search(r'^//\s*=+\s*$', code, re.MULTILINE))
+    
+    if has_standard_header:
+        # Update existing header components
+        # Update Version line
+        code = re.sub(
+            r'//\s*Version:\s*v?[\d.]+',
+            f'// Version: v{new_version}',
+            code,
+            flags=re.IGNORECASE
+        )
+        
+        # Update FILENAME line if present
+        if filename:
+            code = re.sub(
+                r'//\s*FILENAME:\s*[^\n]+',
+                f'// FILENAME: {filename}',
+                code,
+                flags=re.IGNORECASE
+            )
+        
+        # Update DATE line
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        code = re.sub(
+            r'//\s*DATE:\s*[^\n]+',
+            f'// DATE:     {current_date}',
+            code,
+            flags=re.IGNORECASE
+        )
+        
+        # Update CHANGE LOG if changelog provided
+        if changelog:
+            # Try to find and update CHANGE LOG section
+            change_log_pattern = r'(//\s*CHANGE LOG:.*?)(\n//\s*v[\d.]+.*?)(\n//\s*(?:STRENGTHS|WEAKNESSES|=))'
+            if re.search(change_log_pattern, code, re.DOTALL | re.IGNORECASE):
+                # Prepend new changelog entry
+                new_entry = f"\n//   v{new_version} - {changelog}"
+                code = re.sub(
+                    change_log_pattern,
+                    rf'\1{new_entry}\2\3',
+                    code,
+                    flags=re.DOTALL | re.IGNORECASE
+                )
+    
+    else:
+        # No standard header exists - inject full header template
+        pine_version_match = re.search(r'^(//@version=[56])\s*$', code, re.MULTILINE)
+        if pine_version_match:
+            # Get current date
+            current_date = datetime.now().strftime('%Y-%m-%d')
+            
+            # Build standardized header
+            header_lines = [
+                "// =============================================================================",
+                f"// {script_type or 'INDICATOR'}: {script_name or 'Unknown Script'}",
+                f"// FILENAME: {filename or 'unknown.pine'}",
+                f"// Version: v{new_version}",
+                f"// DATE:     {current_date}",
+                "// =============================================================================",
+                "// CHANGE LOG:",
+                f"//   v{new_version} - {changelog or 'Initial versioned release'}",
+                "//",
+                "//   STRENGTHS: [To be documented]",
+                "//   WEAKNESSES: [To be documented]",
+                "// ============================================================================="
+            ]
+            
+            # Inject after //@version=X line
+            injection_point = pine_version_match.end()
+            before = code[:injection_point]
+            after = code[injection_point:]
+            
+            header_block = "\n" + "\n".join(header_lines)
+            code = f"{before}{header_block}{after}"
     
     return code
 

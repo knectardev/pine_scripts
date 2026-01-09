@@ -1,0 +1,68 @@
+//@version=5
+// =============================================================================
+// STRATEGY: Momentum Breakout Strategy
+// FILENAME: momentum-breakout-strategy.pine
+// VERSION:  v1.2.0 (Current)
+// AUTHOR:   Trading Team
+// DATE:     2026-01-08
+// =============================================================================
+/* DESCRIPTION:
+   Sample strategy that trades breakouts of consolidation patterns using
+   volume confirmation and momentum indicators.
+   
+   This is a DEMO/TEST file to illustrate the recommended folder structure.
+   ============================================================================= */
+
+strategy("Momentum Breakout v1.2.0", overlay = true, initialCapital = 25000)
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+const int   DEFAULT_BB_LENGTH    = 20
+const float DEFAULT_BB_MULT      = 2.0
+const int   DEFAULT_VOLUME_MA    = 20
+const float DEFAULT_VOLUME_MULT  = 1.5
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+int bbLengthInput = input.int(DEFAULT_BB_LENGTH, "BB Length", minval = 5)
+float bbMultInput = input.float(DEFAULT_BB_MULT, "BB StdDev", step = 0.1)
+int volumeMaInput = input.int(DEFAULT_VOLUME_MA, "Volume MA", minval = 5)
+float volumeMultInput = input.float(DEFAULT_VOLUME_MULT, "Volume Multiplier", step = 0.1)
+
+// ============================================================================
+// CALCULATIONS
+// ============================================================================
+[bbMiddle, bbUpper, bbLower] = ta.bb(close, bbLengthInput, bbMultInput)
+float bbWidth = (bbUpper - bbLower) / bbMiddle
+
+float volumeMa = ta.sma(volume, volumeMaInput)
+bool highVolume = volume > volumeMa * volumeMultInput
+
+bool breakoutUp = close > bbUpper and highVolume
+bool breakoutDown = close < bbLower and highVolume
+
+// ============================================================================
+// STRATEGY CALLS
+// ============================================================================
+if breakoutUp and strategy.position_size == 0
+  strategy.entry("Long", strategy.long)
+
+if breakoutDown and strategy.position_size == 0
+  strategy.entry("Short", strategy.short)
+
+if strategy.position_size > 0
+  strategy.exit("Exit Long", "Long", limit = close * 1.02, stop = close * 0.99)
+
+if strategy.position_size < 0
+  strategy.exit("Exit Short", "Short", limit = close * 0.98, stop = close * 1.01)
+
+// ============================================================================
+// VISUALS
+// ============================================================================
+plot(bbUpper, "BB Upper", color.red, 1)
+plot(bbMiddle, "BB Middle", color.gray, 1)
+plot(bbLower, "BB Lower", color.green, 1)
+
+bgcolor(highVolume ? color.new(color.yellow, 90) : na)

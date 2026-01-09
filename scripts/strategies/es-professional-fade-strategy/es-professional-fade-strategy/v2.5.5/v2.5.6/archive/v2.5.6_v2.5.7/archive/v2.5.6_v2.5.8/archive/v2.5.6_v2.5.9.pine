@@ -1,0 +1,190 @@
+//@version=6
+// =============================================================================
+// STRATEGY: ES Professional Fade
+// FILENAME: es-professional-fade-strategy_v2.5.4_exec-gap.pine
+// Version: v2.5.9
+// DATE:     2026-01-08
+// =============================================================================
+// CHANGE LOG:
+//   v2.5.4 - Implemented 'Execution Penalty' logic (Slippage simulation).
+//          - Added time-decaying friction model (penalty expires after X mins).
+//          - Migrated to STOP orders for more realistic fill simulation.
+//
+//   STRENGTHS: High-volatility open regimes, realistic execution modeling.
+//   WEAKNESSES: Sustained Trend Days (addressed via TICK veto).
+// =============================================================================
+
+strategy(
+  "ES Professional Fade v2.5.4 (Execution Gap Modeled)", overlay=true, initial_capital=50000, default_qty_value=1, commission_type=strategy.commission.cash_per_contract, commission_value=2.01)
+
+const float DEFAULT_COMMISSION      = 2.01
+const float MILLISECONDS_PER_MINUTE = 60000.0
+
+const int   DEFAULT_GAP_PCT         = 20
+const int   BASIS_POINTS_DIVISOR    = 10000
+
+const int   OR_LENGTH_5MIN          = 5
+const int   OR_LENGTH_15MIN         = 15
+const int   OR_LENGTH_30MIN         = 30
+
+const int   DEFAULT_TICK_FILTER     = 700
+const int   DEFAULT_TICK_LOOKBACK   = 5
+const int   DEFAULT_TICK_VETO_COUNT = 3
+
+const int   DEFAULT_MAX_HOLD_BARS   = 24
+const int   DEFAULT_MAX_TRADES_DAY  = 2
+
+const int   DEFAULT_ATR_LENGTH      = 14
+const float DEFAULT_GAP_ATR_MULT    = 1.0
+const float DEFAULT_MIN_GAP_POINTS  = 1.0
+
+const int   DEFAULT_EXEC_WINDOW     = 30
+const float DEFAULT_EXEC_PENALTY    = 0.50
+
+const string RTH_SESSION            = "0930-1600:1234567"
+const string TIMEZONE               = "America/New_York"
+
+const string ENTRY_SHORT_ID         = "FadeShort"
+const string ENTRY_LONG_ID          = "FadeLong"
+const string EXIT_ID                = "TP/SL"
+const string EXIT_TIMEOUT_COMMENT   = "Time Out"
+const string EXIT_EOD_COMMENT       = "EOD"
+
+int startDateInput = input.time(timestamp("2025-10-01 00:00"), "Backtest Start Date")
+int endDateInput = input.time(timestamp("2026-01-08 23:59"), "Backtest End Date")
+
+float gapMinPctInput = input.float(0.20, "Min Gap %", step=0.05)
+int   openingRangeLengthInput = input.int(OR_LENGTH_15MIN, "Opening Range (Min)", options=[OR_LENGTH_5MIN, OR_LENGTH_15MIN, OR_LENGTH_30MIN])
+
+int tickFilterInput = input.int(DEFAULT_TICK_FILTER, "Breadth Filter (TICK extreme)")
+int tickLookbackInput = input.int(DEFAULT_TICK_LOOKBACK, "TICK veto lookback (bars)", minval=3)
+int tickVetoCountInput = input.int(DEFAULT_TICK_VETO_COUNT, "TICK veto count", minval=2)
+
+int maxHoldBarsInput = input.int(DEFAULT_MAX_HOLD_BARS, "Max Hold (Bars, 5m)")
+int maxTradesDayInput = input.int(DEFAULT_MAX_TRADES_DAY, "Max Trades Per Day")
+
+bool  useAtrFilterInput = input.bool(true, "Use ATR gap filter")
+int   atrLengthInput = input.int(DEFAULT_ATR_LENGTH, "ATR Length (chart TF)", minval=5)
+float gapAtrMultInput = input.float(DEFAULT_GAP_ATR_MULT, "Min Gap in ATRs", step=0.25)
+float minGapPointsInput = input.float(DEFAULT_MIN_GAP_POINTS, "Min Gap Points", step=0.25)
+
+bool  useExecPenaltyInput = input.bool(true, "Apply execution penalty near open")
+int   execWindowMinsInput = input.int(DEFAULT_EXEC_WINDOW, "Penalty window after open (mins)", minval=5)
+float execPenaltyPointsInput = input.float(DEFAULT_EXEC_PENALTY, "Execution penalty (ES points)", step=0.25)
+
+bool inDateRange = time >= startDateInput and time <= endDateInput
+
+bool isRth = not na(time(timeframe.period, RTH_SESSION, TIMEZONE))
+bool isFirstBar = isRth and not isRth[1]
+
+float atrValue = ta.atr(atrLengthInput)
+
+var float rthClosePrev = na
+var float rthOpenCurrent = na
+var int   rthOpenTime = na
+
+var float overnightHigh = na
+var float overnightLow = na
+
+var float openingRangeHigh = na
+var float openingRangeLow = na
+var bool  openingRangeFrozen = false
+
+var int tradesToday = 0
+var int entryBarIndex = na
+
+if not isRth and isRth[1]
+  rthClosePrev := close[1]
+  overnightHigh := high
+  overnightLow := low
+
+if not isRth
+  overnightHigh := math.max(high, nz(overnightHigh, high))
+  overnightLow := math.min(low, nz(overnightLow, low))
+
+if isFirstBar
+  rthOpenCurrent := open
+  rthOpenTime := time
+  openingRangeHigh := high
+  openingRangeLow := low
+  openingRangeFrozen := false
+  tradesToday := 0
+
+int barsInOpeningRange = math.max(1, math.ceil(openingRangeLengthInput / timeframe.multiplier))
+
+bool gapPoints = not na(rthOpenCurrent) and not na(rthClosePrev) ? 
+  math.abs(rthOpenCurrent - rthClosePrev) : na
+
+bool gapBigEnough = not useAtrFilterInput ? true : 
+  (not na(gapPoints) and gapPoints >= minGapPointsInput and gapPoints >= gapAtrMultInput * atrValue)
+
+bool gapSizePct = not na(rthOpenCurrent) and not na(rthClosePrev) ? 
+  (rthOpenCurrent - rthClosePrev) / rthClosePrev : na
+
+float gapMinPctDecimal = gapMinPctInput / 100
+bool validGapUp = gapSizePct > gapMinPctDecimal and gapBigEnough
+bool validGapDown = gapSizePct < -gapMinPctDecimal and gapBigEnough
+
+float tickValue = request.security("NYSE:TICK", timeframe.period, close, barmerge.gaps_off, barmerge.lookahead_off)
+bool tickExtremeUp = ta.sum(tickValue > tickFilterInput ? 1 : 0, tickLookbackInput) >= tickVetoCountInput
+bool tickExtremeDown = ta.sum(tickValue < -tickFilterInput ? 1 : 0, tickLookbackInput) >= tickVetoCountInput
+
+bool failedOvernightHigh = high > overnightHigh and close < overnightHigh
+bool failedOvernightLow = low < overnightLow and close > overnightLow
+
+bool minutesSinceOpen = not na(rthOpenTime) ? (time - rthOpenTime) / MILLISECONDS_PER_MINUTE : na
+bool inExecWindow = isRth and not na(minutesSinceOpen) and minutesSinceOpen <= execWindowMinsInput
+float execPenalty = (useExecPenaltyInput and inExecWindow) ? execPenaltyPointsInput : 0.0
+
+float shortEntryPrice = openingRangeLow - execPenalty
+float longEntryPrice = openingRangeHigh + execPenalty
+
+bool canTrade = isRth and inDateRange and openingRangeFrozen and tradesToday < maxTradesDayInput
+
+int barsSinceFirstBar = ta.barssince(isFirstBar)
+
+if isRth and not openingRangeFrozen
+  if barsSinceFirstBar < barsInOpeningRange
+    openingRangeHigh := math.max(high, nz(openingRangeHigh, high))
+    openingRangeLow := math.min(low, nz(openingRangeLow, low))
+  else
+    openingRangeFrozen := true
+
+if canTrade and strategy.position_size == 0
+  if validGapUp and failedOvernightHigh and not tickExtremeUp
+    strategy.entry(ENTRY_SHORT_ID, strategy.short, stop=shortEntryPrice)
+  
+  if validGapDown and failedOvernightLow and not tickExtremeDown
+    strategy.entry(ENTRY_LONG_ID, strategy.long, stop=longEntryPrice)
+
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+  entryBarIndex := bar_index
+  tradesToday += 1
+
+if strategy.position_size != 0
+  float targetPrice = rthClosePrev
+  if useExecPenaltyInput and inExecWindow
+    targetPrice := strategy.position_size > 0 ? 
+      (rthClosePrev - execPenalty) : 
+      (rthClosePrev + execPenalty)
+  
+  float stopPrice = strategy.position_size > 0 ? overnightLow : overnightHigh
+  strategy.exit(EXIT_ID, limit=targetPrice, stop=stopPrice)
+  
+  if not na(entryBarIndex) and (bar_index - entryBarIndex) >= maxHoldBarsInput
+    strategy.close_all( comment=EXIT_TIMEOUT_COMMENT)
+
+if strategy.position_size == 0
+  entryBarIndex := na
+
+if not isRth
+  strategy.close_all( comment=EXIT_EOD_COMMENT)
+
+if not isRth or isFirstBar
+  rthClosePrev := na
+  rthOpenCurrent := na
+  rthOpenTime := na
+  overnightHigh := na
+  overnightLow := na
+  openingRangeHigh := na
+  openingRangeLow := na

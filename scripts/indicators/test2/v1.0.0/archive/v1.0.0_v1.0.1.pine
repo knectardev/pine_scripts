@@ -1,0 +1,119 @@
+//@version=6
+strategy("VWAP EMA Trend Continuation (clean trend + spacing)", overlay=true, initial_capital=25000, default_qty_type=strategy.percent_of_equity, default_qty_value=10)
+
+// ==== Inputs ====
+useLong          = input.bool(true,  "Enable long trades")
+useShort         = input.bool(false, "Enable short trades (mirror)")
+
+emaFastLen       = input.int(9,   "Fast EMA length (entry)", minval=1)
+emaTrendLen      = input.int(21,  "Trend EMA length (early exit)", minval=1)
+emaSlowLen       = input.int(200, "Slow EMA length (final exit)", minval=1)
+
+vwapSlopeLookback = input.int(10,  "VWAP slope lookback bars", minval=1)
+vwapSlopeMin      = input.float(0.0, "Min VWAP slope (vwap - vwap[lookback])")
+
+useVolFilter      = input.bool(true,  "Use volume filter")
+volSmaLen         = input.int(20, "Volume SMA length", minval=1)
+
+useEarlyExit      = input.bool(true, "Exit on EMA(trend) cross before EMA(slow)")
+
+emaSlowSlopeLookback   = input.int(20, "Slow EMA slope lookback", minval=1)
+emaSlowSlopeMin        = input.float(0.0, "Min slow EMA slope")
+
+minBarsBetweenEntries  = input.int(15, "Min bars between entries", minval=0)
+
+// ==== Core indicators (internal only) ====
+emaFast  = ta.ema(close, emaFastLen)
+emaTrend = ta.ema(close, emaTrendLen)
+emaSlow  = ta.ema(close, emaSlowLen)
+vwapVal  = ta.vwap(hlc3)
+
+volSma   = ta.sma(volume, volSmaLen)
+
+// ==== Trend and filters ====
+// VWAP slope
+vwapSlope       = vwapVal - vwapVal[vwapSlopeLookback]
+vwapTrendUp     = vwapSlope > vwapSlopeMin
+vwapTrendDown   = vwapSlope < -vwapSlopeMin
+
+// Slow EMA slope
+emaSlowSlope    = emaSlow - emaSlow[emaSlowSlopeLookback]
+emaSlowSlopeUp  = emaSlowSlope >  emaSlowSlopeMin
+emaSlowSlopeDown= emaSlowSlope < -emaSlowSlopeMin
+
+// Trend conditions (relaxed for early long, but still directional)
+trendLongOk   = emaFast > emaTrend and close > vwapVal and emaSlowSlopeUp and vwapTrendUp
+trendShortOk  = emaFast < emaTrend and close < vwapVal and emaSlowSlopeDown and vwapTrendDown
+
+// Volume filter
+volOk         = useVolFilter ? volume > volSma : true
+
+// ==== Entry cross conditions ====
+// 1) EMA9 crossing VWAP
+emaCrossUp      = ta.crossover(emaFast, vwapVal)
+emaCrossDown    = ta.crossunder(emaFast, vwapVal)
+
+// 2) PRICE crossing both VWAP and EMA9
+priceCrossVWAPUp   = ta.crossover(close, vwapVal)
+priceCrossFastUp   = ta.crossover(close, emaFast)
+priceCrossVWAPDown = ta.crossunder(close, vwapVal)
+priceCrossFastDown = ta.crossunder(close, emaFast)
+
+// Long entry if either EMA9 x VWAP OR price x (VWAP & EMA9) in acceptable trend
+longSignalRaw   = ((emaCrossUp and vwapTrendUp) or (priceCrossVWAPUp and priceCrossFastUp and vwapTrendUp)) and trendLongOk and volOk
+shortSignalRaw  = ((emaCrossDown and vwapTrendDown) or (priceCrossVWAPDown and priceCrossFastDown and vwapTrendDown)) and trendShortOk and volOk
+
+// ==== Spacing between entries ====
+var int lastLongEntryBar  = na
+var int lastShortEntryBar = na
+
+canLongNow  = na(lastLongEntryBar)  or (bar_index - lastLongEntryBar  >= minBarsBetweenEntries)
+canShortNow = na(lastShortEntryBar) or (bar_index - lastShortEntryBar >= minBarsBetweenEntries)
+
+longSignalBar   = longSignalRaw  and canLongNow
+shortSignalBar  = shortSignalRaw and canShortNow
+
+// ==== Exit cross conditions ====
+// Early exits on EMA(trend)
+longEarlyCross   = ta.crossunder(close, emaTrend)
+shortEarlyCross  = ta.crossover(close, emaTrend)
+
+// Final exits on EMA(slow)
+longSlowCross    = ta.crossunder(close, emaSlow)
+shortSlowCross   = ta.crossover(close, emaSlow)
+
+// Exit signals
+longExitEarly    = useEarlyExit and longEarlyCross
+shortExitEarly   = useEarlyExit and shortEarlyCross
+
+longExitSlow     = longSlowCross
+shortExitSlow    = shortSlowCross
+
+longExitSignal   = longExitEarly or longExitSlow
+shortExitSignal  = shortExitEarly or shortExitSlow
+
+// ==== Orders ====
+// Long entries
+if useLong and longSignalBar and strategy.position_size <= 0
+    strategy.entry("Long", strategy.long)
+    lastLongEntryBar := bar_index
+
+// Short entries
+if useShort and shortSignalBar and strategy.position_size >= 0
+    strategy.entry("Short", strategy.short)
+    lastShortEntryBar := bar_index
+
+// Long exits
+if strategy.position_size > 0 and longExitSignal
+    strategy.close("Long")
+
+// Short exits
+if strategy.position_size < 0 and shortExitSignal
+    strategy.close("Short")
+
+// ==== Plot ONLY markers ====
+plotshape(longSignalBar, title="Long Entry", style=shape.triangleup, color=color.lime, size=size.tiny, location=location.belowbar)
+plotshape(shortSignalBar, title="Short Entry", style=shape.triangledown, color=color.red, size=size.tiny, location=location.abovebar)
+
+plotshape(longExitSignal and strategy.position_size > 0, title="Long Exit", style=shape.xcross, color=color.red, size=size.tiny, location=location.abovebar)
+plotshape(shortExitSignal and strategy.position_size < 0, title="Short Exit", style=shape.xcross, color=color.lime, size=size.tiny, location=location.belowbar)

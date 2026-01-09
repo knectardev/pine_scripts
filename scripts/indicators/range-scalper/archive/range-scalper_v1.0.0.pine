@@ -1,0 +1,28 @@
+//@version=5
+// =============================================================================
+// INDICATOR: Range Scalper
+// FILENAME: range-scalper_v1.0.0.pine
+// VERSION:  v1.0.0
+// DATE:     2025-11-01
+// =============================================================================
+/* CHANGE LOG:
+   v1.0.0 - Initial release with basic range detection.
+          - Pivot-based support/resistance levels.
+          - Simple range threshold calculation.
+          
+   STRENGTHS: Clean visualization, straightforward logic.
+   WEAKNESSES: No volume confirmation, fixed threshold.
+   ============================================================================= */
+
+indicator("Range Scalper v1.0.0", overlay = true)
+
+// Basic range detection - simplified for archive
+const int DEFAULT_PIVOT_LENGTH = 10
+
+int pivotLengthInput = input.int(DEFAULT_PIVOT_LENGTH, "Pivot Length")
+
+float pivotHigh = ta.pivothigh(high, pivotLengthInput, pivotLengthInput)
+float pivotLow = ta.pivotlow(low, pivotLengthInput, pivotLengthInput)
+
+plot(pivotHigh, "Resistance", color.red)
+plot(pivotLow, "Support", color.green)

@@ -1,0 +1,47 @@
+//@version=5
+// =============================================================================
+// STRATEGY: Redone ES Fade
+// FILENAME: redone-es-fade_v1.0.0.pine
+// Version: v1.0.0
+// DATE:     2026-01-09
+// =============================================================================
+// CHANGE LOG:
+//   v1.0.0 - Initial version
+//
+//   STRENGTHS: [To be documented]
+//   WEAKNESSES: [To be documented]
+// =============================================================================
+strategy("ES Absolute Trigger v4.9", overlay=true, initial_capital=50000, default_qty_value=1)
+
+// 1. Simple Session Detection
+is_new_day = ta.change(time("D")) 
+
+// 2. State Variables
+var float hi = na
+var float lo = na
+var bool traded_today = false
+
+// 3. Capture Opening Range (First bar of the day)
+if is_new_day
+    hi := high
+    lo := low
+    traded_today := false
+
+// 4. Force trade logic to check every price movement
+if not na(hi) and not traded_today
+    if high > hi
+        strategy.entry("Long", strategy.long, comment="GO")
+        traded_today := true
+    else if low < lo
+        strategy.entry("Short", strategy.short, comment="GO")
+        traded_today := true
+
+// 5. Simple Exit (Fixed Points for ES)
+if strategy.position_size > 0
+    strategy.exit("Exit", limit=close + 20, stop=lo) // 20 point target
+if strategy.position_size < 0
+    strategy.exit("Exit", limit=close - 20, stop=hi)
+
+// 6. Basic Visuals to confirm it's "Alive"
+plot(hi, "Trigger High", color=color.lime, style=plot.style_circles, linewidth=3)
+plot(lo, "Trigger Low", color=color.red, style=plot.style_circles, linewidth=3)

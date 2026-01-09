@@ -15,6 +15,7 @@ async function loadScripts() {
         const data = await response.json();
         allScripts = data.scripts || [];
         filteredScripts = [...allScripts];
+        sortScripts();  // Sort by default (Last Modified descending)
         renderScripts();
         updateStats();
     } catch (error) {
@@ -1262,10 +1263,14 @@ function displayReviewResults(reviewData) {
     // Combine all HTML
     modalBody.innerHTML = summaryHTML + issuesHTML + recommendationsHTML;
     
-    // Show export button
+    // Show export and copy buttons
     const exportBtn = document.getElementById('exportPdfBtn');
     if (exportBtn) {
         exportBtn.style.display = 'block';
+    }
+    const copyReviewBtn = document.getElementById('copyReviewBtn');
+    if (copyReviewBtn) {
+        copyReviewBtn.style.display = 'block';
     }
     
     // Show auto-fix button if there are fixable issues
@@ -1297,10 +1302,14 @@ function displayReviewResults(reviewData) {
 function closeReviewModal() {
     const modal = document.getElementById('reviewModal');
     modal.style.display = 'none';
-    // Hide export button
+    // Hide export and copy buttons
     const exportBtn = document.getElementById('exportPdfBtn');
     if (exportBtn) {
         exportBtn.style.display = 'none';
+    }
+    const copyReviewBtn = document.getElementById('copyReviewBtn');
+    if (copyReviewBtn) {
+        copyReviewBtn.style.display = 'none';
     }
     // Hide auto-fix buttons
     const autoFixBtn = document.getElementById('autoFixBtn');
@@ -1318,6 +1327,99 @@ function closeReviewModal() {
 }
 
 // Export review to PDF
+// Copy review report to clipboard (formatted for LLM prompts)
+function copyReviewToClipboard() {
+    if (!currentReviewData) {
+        showNotification('No review data available', 'error');
+        return;
+    }
+    
+    const reviewData = currentReviewData;
+    const reviewedVersion = reviewData.reviewedVersion || 'current';
+    
+    // Count issues by severity
+    const criticalIssues = reviewData.issues.filter(i => i.severity === 'CRITICAL');
+    const highIssues = reviewData.issues.filter(i => i.severity === 'HIGH');
+    const warningIssues = reviewData.issues.filter(i => i.severity === 'WARNING');
+    const passedChecks = reviewData.issues.filter(i => i.severity === 'PASS');
+    
+    // Build formatted text report
+    let report = `CODE REVIEW REPORT
+${'='.repeat(70)}
+
+Script: ${reviewData.scriptName}
+Version: ${reviewedVersion}
+
+SUMMARY
+${'-'.repeat(70)}
+Critical Issues: ${criticalIssues.length}
+High Priority: ${highIssues.length}
+Warnings: ${warningIssues.length}
+Passed Checks: ${passedChecks.length}
+
+`;
+    
+    // Add critical issues
+    if (criticalIssues.length > 0) {
+        report += `\nCRITICAL ISSUES (${criticalIssues.length})\n${'-'.repeat(70)}\n`;
+        criticalIssues.forEach((issue, idx) => {
+            report += `\n${idx + 1}. [${issue.category}] ${issue.check}\n`;
+            if (issue.line) report += `   Line ${issue.line}\n`;
+            report += `   ${issue.message}\n`;
+            if (issue.code) report += `   Code: ${issue.code}\n`;
+        });
+    }
+    
+    // Add high priority issues
+    if (highIssues.length > 0) {
+        report += `\nHIGH PRIORITY ISSUES (${highIssues.length})\n${'-'.repeat(70)}\n`;
+        highIssues.forEach((issue, idx) => {
+            report += `\n${idx + 1}. [${issue.category}] ${issue.check}\n`;
+            if (issue.line) report += `   Line ${issue.line}\n`;
+            report += `   ${issue.message}\n`;
+            if (issue.code) report += `   Code: ${issue.code}\n`;
+        });
+    }
+    
+    // Add warnings
+    if (warningIssues.length > 0) {
+        report += `\nWARNINGS (${warningIssues.length})\n${'-'.repeat(70)}\n`;
+        warningIssues.forEach((issue, idx) => {
+            report += `\n${idx + 1}. [${issue.category}] ${issue.check}\n`;
+            if (issue.line) report += `   Line ${issue.line}\n`;
+            report += `   ${issue.message}\n`;
+            if (issue.code) report += `   Code: ${issue.code}\n`;
+        });
+    }
+    
+    // Add recommendations if any
+    if (reviewData.recommendations && reviewData.recommendations.length > 0) {
+        report += `\nRECOMMENDATIONS\n${'-'.repeat(70)}\n`;
+        reviewData.recommendations.forEach((rec, idx) => {
+            report += `${idx + 1}. ${rec}\n`;
+        });
+    }
+    
+    report += `\n${'='.repeat(70)}\n`;
+    report += `End of Report\n`;
+    
+    // Copy to clipboard
+    navigator.clipboard.writeText(report).then(() => {
+        const copyBtn = document.getElementById('copyReviewButtonText');
+        const originalText = copyBtn.textContent;
+        copyBtn.textContent = '✅ Copied!';
+        showNotification('Code review copied to clipboard!', 'success');
+        
+        // Reset button text after 2 seconds
+        setTimeout(() => {
+            copyBtn.textContent = originalText;
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy review:', err);
+        showNotification('Failed to copy review', 'error');
+    });
+}
+
 async function exportReviewToPDF() {
     if (!currentReviewData) {
         showNotification('No review data available', 'error');
