@@ -4,12 +4,31 @@ A comprehensive project for organizing, tracking, and managing Pine Script files
 
 ## 🎯 Project Overview
 
-This project provides a complete solution for managing your TradingView Pine Scripts, including:
-- Organized directory structure for indicators, strategies, and studies
-- JSON-based data storage (no database required)
-- Interactive web grid for browsing and searching scripts
-- Backtest performance tracking and metrics
-- Version control and metadata management
+This project provides a **production-quality solution** for managing your TradingView Pine Scripts, including:
+
+### Management & Organization
+- ✅ Organized directory structure for indicators, strategies, and studies
+- ✅ JSON-based data storage (no database required)
+- ✅ Interactive web interface for full CRUD operations
+- ✅ Backtest performance tracking and metrics
+- ✅ Advanced search and filtering
+
+### Version Control & Code Quality
+- ✅ **Automatic version control** with changelog tracking
+- ✅ **Comprehensive code review** based on official TradingView standards
+- ✅ **Auto-fix system** for common code quality issues
+- ✅ **LLM-powered fixes** using OpenAI or Claude
+- ✅ **Logic validation** to catch bugs and errors
+
+### Safety & Reliability
+- ✅ **Automatic backups** (keeps last 10, with timestamps)
+- ✅ **Version history** with restore capability
+- ✅ **Data integrity** checks and validation
+- ✅ **Error recovery** mechanisms
+
+> **📖 New Users:** Start with [QUICKSTART.md](QUICKSTART.md) for a 2-minute setup guide!  
+> **📚 Developers:** See [API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) for complete API reference  
+> **🔍 Code Review:** Check out [CODE_REVIEW_REPORT.md](docs/CODE_REVIEW_REPORT.md) for project assessment
 
 ## 📁 Directory Structure
 
@@ -65,6 +84,24 @@ Install the required Python packages (with virtual environment activated):
 ```bash
 pip install -r requirements.txt
 ```
+
+### 2.5. (Optional) Configure LLM Features
+
+For AI-powered code fixes, create a `.env` file in the project root:
+
+```bash
+# .env file (create this file)
+OPENAI_API_KEY=your_openai_api_key_here
+DEFAULT_LLM_PROVIDER=openai
+OPENAI_MODEL=gpt-4
+
+# OR use Claude:
+# ANTHROPIC_API_KEY=your_anthropic_api_key_here
+# DEFAULT_LLM_PROVIDER=anthropic
+# CLAUDE_MODEL=claude-3-5-sonnet-20241022
+```
+
+> **Note:** LLM features are optional. The app works perfectly without them for manual code reviews and quick-fixes.
 
 ### 3. Start the Flask Server
 
@@ -176,9 +213,13 @@ The `data/scripts.json` file stores all metadata about your scripts. Here's the 
 
 ### Additional Features
 - **Automatic Backups**: Every save creates a timestamped backup in `data/backups/`
-- **Validation**: Required fields are enforced
+- **Smart Backup Management**: Keeps last 10 backups, throttles to prevent spam
+- **Validation**: Required fields enforced, data integrity checks
 - **Notifications**: Visual feedback for all operations
 - **Responsive Design**: Works on desktop, tablet, and mobile
+- **Code Review Reports**: Export to PDF or copy to clipboard for LLM analysis
+- **Version Control**: Complete history with restore and compare capabilities
+- **Auto-Fix**: One-click fixes for common code quality issues
 
 ## 🔧 Adding a New Script
 
@@ -259,7 +300,9 @@ Add an entry to `data/scripts.json` or use the web interface:
 
 ## 🔐 API Endpoints
 
-The Flask server provides a RESTful API:
+The Flask server provides a comprehensive RESTful API. For complete documentation, see [API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md).
+
+### Core Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -268,6 +311,29 @@ The Flask server provides a RESTful API:
 | POST | `/api/scripts` | Create new script |
 | PUT | `/api/scripts/:id` | Update script |
 | DELETE | `/api/scripts/:id` | Delete script |
+
+### Code Operations
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/scripts/:id/code` | Get script code (current or specific version) |
+| GET | `/api/scripts/:id/review` | Perform code quality review |
+| POST | `/api/scripts/:id/save-code` | Save edited code (creates new version) |
+| POST | `/api/scripts/:id/autofix` | Auto-fix single issue |
+| POST | `/api/scripts/:id/auto-fix-all` | Auto-fix all fixable issues |
+| POST | `/api/scripts/:id/smart-autofix` | LLM-powered intelligent fixes |
+
+### Version Control
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/scripts/:id/versions` | Get version history |
+| POST | `/api/scripts/:id/versions/:v/restore` | Restore previous version |
+
+### Backups
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | GET | `/api/backups` | List available backups |
 | POST | `/api/backups/:file` | Restore from backup |
 
@@ -396,6 +462,32 @@ Or manually copy:
 cp data/backups/scripts_20260108_120000.json data/scripts.json
 ```
 
+## ⚙️ Configuration
+
+### Environment Variables
+
+Create a `.env` file in the project root for optional configuration:
+
+```bash
+# LLM Provider Configuration (optional)
+OPENAI_API_KEY=sk-...                           # OpenAI API key
+DEFAULT_LLM_PROVIDER=openai                     # 'openai' or 'anthropic'
+OPENAI_MODEL=gpt-4                              # OpenAI model name
+CLAUDE_MODEL=claude-3-5-sonnet-20241022         # Claude model name
+
+# Anthropic Alternative (optional)
+ANTHROPIC_API_KEY=sk-ant-...                    # Anthropic API key
+```
+
+> **Security Note:** Never commit `.env` to version control. It's already in `.gitignore`.
+
+### Checking API Configuration
+
+Visit the settings page in the web interface or call:
+```bash
+curl http://localhost:5000/api/debug/api-key-status
+```
+
 ## 🛠️ Customization
 
 ### Adding New Metadata Fields
@@ -405,18 +497,24 @@ cp data/backups/scripts_20260108_120000.json data/scripts.json
 3. Modify `web/js/app.js` to handle the new field
 4. Update the table in `web/index.html` if adding a new column
 
-### Styling
+### Theming
 
 All styles are in `web/css/styles.css`. The design uses CSS custom properties (variables) for easy theming:
 
 ```css
 :root {
-    --primary-color: #2962ff;
-    --secondary-color: #00bcd4;
-    --success-color: #4caf50;
-    /* ... etc ... */
+    --primary-color: #2962ff;        /* Blue accent */
+    --secondary-color: #00bcd4;      /* Cyan accent */
+    --success-color: #4caf50;        /* Green (good metrics) */
+    --warning-color: #ff9800;        /* Orange (warnings) */
+    --danger-color: #f44336;         /* Red (errors) */
+    --dark-bg: #1e1e1e;             /* Main background */
+    --card-bg: #2d2d2d;             /* Card background */
+    /* ... more variables ... */
 }
 ```
+
+**To create a light theme:** Just change these variables!
 
 ## 🚀 Production Deployment
 
@@ -479,11 +577,56 @@ This project structure is free to use and modify for personal or commercial purp
 - Verify numeric values are entered correctly (not text)
 - Check that backtest metrics are numbers, not strings
 
-## 🎓 Resources
+## 📚 Documentation
 
+### Core Documentation
+- **[README.md](README.md)** - This file (project overview and setup)
+- **[QUICKSTART.md](QUICKSTART.md)** - Quick reference for daily use
+- **[API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md)** - Complete API reference
+- **[CODE_REVIEW_REPORT.md](docs/CODE_REVIEW_REPORT.md)** - Comprehensive code review
+
+### Pine Script Standards
+- **[PINE_SCRIPT_STANDARDS.md](docs/PINE_SCRIPT_STANDARDS.md)** - Official TradingView standards
+- **[LOGICAL_SANITY_CHECKS.md](docs/LOGICAL_SANITY_CHECKS.md)** - Logic validation rules
+- **[SANITY_CHECKS_QUICK_REF.md](docs/SANITY_CHECKS_QUICK_REF.md)** - Quick reference checklist
+
+### Additional Resources
+- **[JSON_SCHEMA_GUIDE.md](docs/JSON_SCHEMA_GUIDE.md)** - Metadata schema documentation
+- **[FILE_STRUCTURE_GUIDE.md](docs/FILE_STRUCTURE_GUIDE.md)** - Project organization guide
+- **[SCRIPT_DOCUMENTATION_TEMPLATE.md](docs/SCRIPT_DOCUMENTATION_TEMPLATE.md)** - Template for script docs
+
+### External Resources
 - [Pine Script Documentation](https://www.tradingview.com/pine-script-docs/)
 - [TradingView Pine Script Reference](https://www.tradingview.com/pine-script-reference/v5/)
 - [Pine Script Style Guide](https://www.tradingview.com/pine-script-docs/en/v5/writing/Style_guide.html)
+
+## ✨ Features
+
+### Core Features
+- ✅ **Full CRUD Operations** - Create, Read, Update, Delete scripts via web interface
+- ✅ **Version Control** - Automatic versioning with changelog tracking
+- ✅ **Automated Code Review** - Based on official TradingView standards
+- ✅ **Auto-Fix System** - Quick fixes for common issues
+- ✅ **LLM Integration** - Smart fixes powered by OpenAI/Claude
+- ✅ **Backup System** - Automatic backups with restore capability
+- ✅ **Search & Filter** - Find scripts by name, tags, type, status
+- ✅ **Backtest Tracking** - Record and display strategy performance metrics
+- ✅ **Export Capabilities** - PDF export and clipboard copy for code reviews
+
+### Code Quality Features
+- ✅ **Pine Script v5/v6 Support** - Both versions fully supported
+- ✅ **Comprehensive Validation** - Checks structure, naming, formatting, logic
+- ✅ **Performance Analysis** - Detects anti-patterns and optimization opportunities
+- ✅ **Logic Sanity Checks** - Validates strategy logic for common errors
+- ✅ **Platform Limitations** - Warns about plot limits, loop bounds, etc.
+
+### User Experience
+- ✅ **Modern Dark Theme** - Optimized for code viewing
+- ✅ **Responsive Design** - Works on desktop, tablet, mobile
+- ✅ **Real-time Updates** - Instant feedback on all operations
+- ✅ **Syntax Highlighting** - Beautiful code display
+- ✅ **Sortable Tables** - Sort by any metric
+- ✅ **Visual Metrics** - Color-coded performance indicators
 
 ---
 
